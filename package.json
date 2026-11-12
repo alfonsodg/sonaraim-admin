@@ -1,0 +1,20 @@
+{
+  "name": "@sonaraim/admin",
+  "version": "0.1.0",
+  "description": "Sonaraim Dual-Console Web Application: Node Operator Telemetry & B2B Tenant Card Studio",
+  "type": "module",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./config": "./src/config.mjs",
+    "./card-studio": "./src/cardStudio.mjs",
+    "./operator-console": "./src/operatorConsole.mjs"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "license": "Apache-2.0"
+}
