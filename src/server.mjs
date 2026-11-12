@@ -13,13 +13,22 @@ import {
   validateSonaraimCard,
   createCardSigningManifest,
 } from './cardStudio.mjs';
-import { fetchUpstreamTelemetry, provisionB2bTenant } from './apiClient.mjs';
+import {
+  fetchUpstreamTelemetry,
+  provisionB2bTenant,
+  dispatchCardToB2b,
+} from './apiClient.mjs';
 import {
   createOperatorSessionToken,
   isOperatorAuthorized,
   renderLoginView,
 } from './authGate.mjs';
-import { parseRequestBody, renderPrometheusMetrics } from './httpHelpers.mjs';
+import {
+  parseRequestBody,
+  renderPrometheusMetrics,
+  sendJson,
+  sendHtml,
+} from './httpHelpers.mjs';
 
 /**
  * Creates the HTTP request handler wired to the validated Admin configuration.
@@ -58,15 +67,12 @@ export function createAdminRequestHandler(config) {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
 
     if (req.method === 'GET' && url.pathname === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          status: 'ok',
-          service: 'sonaraim-admin',
-          b2bApiBaseUrl: config.b2bApiBaseUrl,
-          nodeApiBaseUrl: config.nodeApiBaseUrl,
-        })
-      );
+      sendJson(res, 200, {
+        status: 'ok',
+        service: 'sonaraim-admin',
+        b2bApiBaseUrl: config.b2bApiBaseUrl,
+        nodeApiBaseUrl: config.nodeApiBaseUrl,
+      });
       return;
     }
 
@@ -77,8 +83,7 @@ export function createAdminRequestHandler(config) {
     }
 
     if (req.method === 'GET' && url.pathname === '/login') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(renderLoginView());
+      sendHtml(res, 200, renderLoginView());
       return;
     }
 
@@ -90,23 +95,19 @@ export function createAdminRequestHandler(config) {
       ).trim();
 
       if (requiredToken && candidate !== requiredToken) {
-        res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(renderLoginView({ error: 'Invalid operator token' }));
+        sendHtml(res, 401, renderLoginView({ error: 'Invalid operator token' }));
         return;
       }
 
       const sessionVal = createOperatorSessionToken(requiredToken || candidate || 'dev-token');
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
+      sendHtml(res, 200, renderLoginView({ authenticated: true }), {
         'Set-Cookie': `sonaraim_operator_session=${sessionVal}; HttpOnly; Path=/; SameSite=Lax`,
       });
-      res.end(renderLoginView({ authenticated: true }));
       return;
     }
 
     if (!isOperatorAuthorized(req, config)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'unauthorized', loginUrl: '/login' }));
+      sendJson(res, 401, { error: 'unauthorized', loginUrl: '/login' });
       return;
     }
 
@@ -115,8 +116,7 @@ export function createAdminRequestHandler(config) {
       const telemetry = await fetchUpstreamTelemetry(config);
       metricsState.nodeReachable = telemetry.nodeReachable;
       metricsState.b2bReachable = telemetry.b2bReachable;
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ service: 'sonaraim-admin', ...telemetry }));
+      sendJson(res, 200, { service: 'sonaraim-admin', ...telemetry });
       return;
     }
 
@@ -130,8 +130,7 @@ export function createAdminRequestHandler(config) {
         epochSummary: telemetry.epochSummary,
         kybItems: [...telemetry.kybItems, ...provisionedTenants],
       });
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
+      sendHtml(res, 200, html);
       return;
     }
 
@@ -144,8 +143,7 @@ export function createAdminRequestHandler(config) {
       const adminKey = String(body.adminKey ?? '').trim();
 
       if (!tenantDid.startsWith('did:web:') || !apiKey) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'invalid_tenant_payload' }));
+        sendJson(res, 400, { error: 'invalid_tenant_payload' });
         return;
       }
 
@@ -166,15 +164,12 @@ export function createAdminRequestHandler(config) {
         kybItems: [...telemetry.kybItems, ...provisionedTenants],
         bannerMessage: `Provisioned ${tenantDid} (upstream status ${result.status})`,
       });
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
+      sendHtml(res, 200, html);
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/studio') {
-      const html = renderStudioView(studioState);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
+      sendHtml(res, 200, renderStudioView(studioState));
       return;
     }
 
@@ -183,14 +178,15 @@ export function createAdminRequestHandler(config) {
       try {
         body = await parseRequestBody(req);
       } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'bad_request', message: err.message }));
+        sendJson(res, 400, { error: 'bad_request', message: err.message });
         return;
       }
 
       const tenantDid = String(body.tenantDid ?? '').trim();
       const cardTitle = String(body.cardTitle ?? '').trim();
       const actionLabel = String(body.actionLabel ?? 'Confirm Action').trim();
+      const recipientDid = String(body.recipientDid ?? '').trim();
+      const apiKey = String(body.apiKey ?? '').trim();
 
       const card = buildSonaraimCard({
         cardId: 'card_studio_builder_v1',
@@ -210,9 +206,19 @@ export function createAdminRequestHandler(config) {
 
       const validation = validateSonaraimCard(card);
       if (!validation.valid) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'invalid_card', errors: validation.errors }));
+        sendJson(res, 400, { error: 'invalid_card', errors: validation.errors });
         return;
+      }
+
+      let dispatchResult = null;
+      if (recipientDid) {
+        dispatchResult = await dispatchCardToB2b(config, {
+          apiKey,
+          recipientDid,
+          cardTitle,
+          actionLabel,
+          card,
+        });
       }
 
       const manifest = createCardSigningManifest(card, new Date().toISOString());
@@ -223,29 +229,26 @@ export function createAdminRequestHandler(config) {
         actionLabel,
         manifestHash: manifest.payloadDigestHex,
         actionsCount: card.actions.length,
+        recipientDid,
+        apiKey,
+        dispatchResult,
       };
 
-      const html = renderStudioView(studioState);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
+      sendHtml(res, 200, renderStudioView(studioState));
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/billing/summary') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          tenantDid: defaultLedger.tenantDid,
-          tier: defaultLedger.tier,
-          maxSeats: defaultLedger.maxSeats,
-          perMessageFee: defaultLedger.perMessageFee,
-        })
-      );
+      sendJson(res, 200, {
+        tenantDid: defaultLedger.tenantDid,
+        tier: defaultLedger.tier,
+        maxSeats: defaultLedger.maxSeats,
+        perMessageFee: defaultLedger.perMessageFee,
+      });
       return;
     }
 
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'not_found' }));
+    sendJson(res, 404, { error: 'not_found' });
   };
 }
 

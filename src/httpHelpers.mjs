@@ -40,6 +40,34 @@ export function parseRequestBody(req) {
 }
 
 /**
+ * Writes a JSON response with appropriate headers and body.
+ *
+ * @param {import('node:http').ServerResponse} res - Outgoing HTTP response.
+ * @param {number} status - HTTP status code.
+ * @param {unknown} data - Response payload to serialize as JSON.
+ */
+export function sendJson(res, status, data) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data));
+}
+
+/**
+ * Writes an HTML response with appropriate headers and body.
+ *
+ * @param {import('node:http').ServerResponse} res - Outgoing HTTP response.
+ * @param {number} status - HTTP status code.
+ * @param {string} html - HTML markup string.
+ * @param {Record<string, string|string[]>} [headers={}] - Optional response headers.
+ */
+export function sendHtml(res, status, html, headers = {}) {
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    ...headers,
+  });
+  res.end(html);
+}
+
+/**
  * Formats internal counters and upstream state in Prometheus 0.0.4 text format.
  *
  * @param {{
@@ -64,6 +92,9 @@ export function renderPrometheusMetrics(m) {
     '# HELP sonaraim_admin_tenants_provisioned_total Total B2B tenants provisioned via POST /operator/tenants',
     '# TYPE sonaraim_admin_tenants_provisioned_total counter',
     `sonaraim_admin_tenants_provisioned_total ${m.tenantsProvisionedTotal ?? 0}`,
+    '# HELP sonaraim_admin_peers_registered_total Total peer nodes registered via POST /operator/peers',
+    '# TYPE sonaraim_admin_peers_registered_total counter',
+    `sonaraim_admin_peers_registered_total ${m.peersRegisteredTotal ?? 0}`,
     '# HELP sonaraim_admin_telemetry_scrapes_total Total live telemetry evaluations performed',
     '# TYPE sonaraim_admin_telemetry_scrapes_total counter',
     `sonaraim_admin_telemetry_scrapes_total ${m.telemetryScrapesTotal}`,

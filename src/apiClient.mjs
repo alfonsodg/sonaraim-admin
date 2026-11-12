@@ -144,3 +144,52 @@ export async function provisionB2bTenant(
     return { ok: false, status: 503, data: null };
   }
 }
+
+/**
+ * Dispatches a declarative Sonaraim Card live to `sonaraim-b2b` POST /v1/messages.
+ *
+ * @param {Readonly<{b2bApiBaseUrl: string}>} config - Admin configuration.
+ * @param {object} params - Dispatch parameters.
+ * @param {string} [params.apiKey=''] - Tenant B2B API key.
+ * @param {string} params.recipientDid - Recipient DID identifier (e.g. did:sonaraim:alice).
+ * @param {string} [params.cardTitle=''] - Declarative card title.
+ * @param {string} [params.actionLabel=''] - Action button label.
+ * @param {object|null} [params.card=null] - Built card object payload.
+ * @returns {Promise<{ok: boolean, dispatched: boolean, status: number, route?: string, relayed?: boolean, [key: string]: any}>}
+ */
+export async function dispatchCardToB2b(
+  config,
+  { apiKey = '', recipientDid, cardTitle = '', actionLabel = '', card = null }
+) {
+  const effectiveKey = String(apiKey || process.env.B2B_BOOTSTRAP_API_KEY || '').trim();
+  try {
+    const res = await fetch(`${config.b2bApiBaseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(effectiveKey ? { Authorization: `Bearer ${effectiveKey}` } : {}),
+      },
+      body: JSON.stringify({
+        recipientDid,
+        recipient_did: recipientDid,
+        to: recipientDid,
+        onboarded: true,
+        card,
+        cardTitle,
+        actionLabel,
+      }),
+      signal: AbortSignal.timeout(1500),
+    });
+    const data = await res.json().catch(() => null);
+    return {
+      ok: res.ok,
+      dispatched: res.ok,
+      status: res.status,
+      route: data?.route,
+      relayed: data?.relayed,
+      ...(data ?? {}),
+    };
+  } catch {
+    return { ok: false, dispatched: false, status: 503, route: null, relayed: false };
+  }
+}

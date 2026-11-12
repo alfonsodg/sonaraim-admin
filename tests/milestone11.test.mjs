@@ -13,6 +13,7 @@ import {
   createOperatorSessionToken,
   isOperatorAuthorized,
   provisionB2bTenant,
+  dispatchCardToB2b,
 } from '../src/index.mjs';
 
 /**
@@ -196,6 +197,85 @@ test('Issue #8: provisionB2bTenant and POST /operator/tenants provision new ente
 
     const metricsRes = await requestHttp(`${baseUrl}/metrics`);
     assert.match(metricsRes.body, /sonaraim_admin_tenants_provisioned_total 1/);
+  } finally {
+    await close();
+    await new Promise((resolve) => mockB2b.close(resolve));
+  }
+});
+
+test('Issue #9: POST /studio/cards dispatches built card live to sonaraim-b2b POST /v1/messages when recipientDid is provided', async () => {
+  let receivedMsg = null;
+  let receivedBearer = '';
+
+  const mockB2b = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/messages') {
+      receivedBearer = String(req.headers.authorization ?? '');
+      let raw = '';
+      req.on('data', (c) => {
+        raw += c;
+      });
+      req.on('end', () => {
+        receivedMsg = JSON.parse(raw);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            status: 'dispatched',
+            route: 'sonaraim_p2p',
+            relayed: true,
+            recipientDid: receivedMsg.recipientDid,
+          })
+        );
+      });
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise((resolve) => mockB2b.listen(0, '127.0.0.1', resolve));
+  const b2bPort = mockB2b.address().port;
+
+  const cfg = Object.freeze({
+    b2bApiBaseUrl: `http://127.0.0.1:${b2bPort}`,
+    nodeApiBaseUrl: 'http://127.0.0.1:59999',
+    adminHttpPort: 0,
+  });
+
+  const { baseUrl, close } = await startAdminTestServer(cfg);
+  try {
+    const directDispatch = await dispatchCardToB2b(cfg, {
+      apiKey: 'tenant-key-direct',
+      recipientDid: 'did:sonaraim:bob',
+      cardTitle: 'Lab Results Ready',
+      actionLabel: 'View Report',
+      card: { card_id: 'card_1' },
+    });
+    assert.equal(directDispatch.dispatched, true);
+    assert.equal(receivedBearer, 'Bearer tenant-key-direct');
+
+    const formBody = new URLSearchParams({
+      tenantDid: 'did:web:clinic.example.com',
+      cardTitle: 'Telehealth Link Ready',
+      actionLabel: 'Join Session',
+      recipientDid: 'did:sonaraim:alice',
+      apiKey: 'tenant-key-live-99',
+    }).toString();
+
+    const postRes = await requestHttp(`${baseUrl}/studio/cards`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': String(Buffer.byteLength(formBody)),
+      },
+      body: formBody,
+    });
+
+    assert.equal(postRes.status, 200);
+    assert.equal(receivedBearer, 'Bearer tenant-key-live-99');
+    assert.equal(receivedMsg.recipientDid, 'did:sonaraim:alice');
+    assert.equal(receivedMsg.onboarded, true);
+    assert.match(postRes.body, /did:sonaraim:alice/);
+    assert.match(postRes.body, /sonaraim_p2p/);
   } finally {
     await close();
     await new Promise((resolve) => mockB2b.close(resolve));
