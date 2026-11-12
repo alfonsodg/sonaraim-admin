@@ -1,6 +1,7 @@
 /**
  * @fileoverview Lightweight Node.js HTTP server for Sonaraim Admin Console views,
- * Zero-Trust operator login, interactive Card Studio builder, and live telemetry.
+ * Zero-Trust operator login, interactive Card Studio builder, B2B tenant provisioning,
+ * and live upstream telemetry.
  */
 
 import http from 'node:http';
@@ -12,7 +13,7 @@ import {
   validateSonaraimCard,
   createCardSigningManifest,
 } from './cardStudio.mjs';
-import { fetchUpstreamTelemetry } from './apiClient.mjs';
+import { fetchUpstreamTelemetry, provisionB2bTenant } from './apiClient.mjs';
 import {
   createOperatorSessionToken,
   isOperatorAuthorized,
@@ -40,6 +41,8 @@ export function createAdminRequestHandler(config) {
     manifestHash: 'sha256-studio-preview',
     actionsCount: 2,
   };
+
+  const provisionedTenants = [];
 
   const metricsState = {
     httpRequestsTotal: 0,
@@ -80,14 +83,7 @@ export function createAdminRequestHandler(config) {
     }
 
     if (req.method === 'POST' && url.pathname === '/login') {
-      let body = {};
-      try {
-        body = await parseRequestBody(req);
-      } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'bad_request', message: err.message }));
-        return;
-      }
+      const body = await parseRequestBody(req).catch(() => ({}));
       const candidate = String(body.operatorToken ?? body.token ?? '').trim();
       const requiredToken = String(
         config?.operatorToken ?? process.env.ADMIN_OPERATOR_TOKEN ?? ''
@@ -99,8 +95,7 @@ export function createAdminRequestHandler(config) {
         return;
       }
 
-      const tokenForHmac = requiredToken || candidate || 'dev-operator-token';
-      const sessionVal = createOperatorSessionToken(tokenForHmac);
+      const sessionVal = createOperatorSessionToken(requiredToken || candidate || 'dev-token');
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Set-Cookie': `sonaraim_operator_session=${sessionVal}; HttpOnly; Path=/; SameSite=Lax`,
@@ -133,7 +128,43 @@ export function createAdminRequestHandler(config) {
       const html = renderOperatorView({
         meshSummary: telemetry.meshSummary,
         epochSummary: telemetry.epochSummary,
-        kybItems: telemetry.kybItems,
+        kybItems: [...telemetry.kybItems, ...provisionedTenants],
+      });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/operator/tenants') {
+      const body = await parseRequestBody(req).catch(() => ({}));
+      const tenantDid = String(body.tenantDid ?? '').trim();
+      const apiKey = String(body.apiKey ?? '').trim();
+      const tier = String(body.tier ?? 'SMB_PRO').trim();
+      const seats = Number(body.seats ?? 10) || 10;
+      const adminKey = String(body.adminKey ?? '').trim();
+
+      if (!tenantDid.startsWith('did:web:') || !apiKey) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_tenant_payload' }));
+        return;
+      }
+
+      const result = await provisionB2bTenant(config, {
+        tenantDid,
+        apiKey,
+        tier,
+        seats,
+        adminKey,
+      });
+      metricsState.tenantsProvisionedTotal += 1;
+      provisionedTenants.push({ did: tenantDid, verified: true, tlsValid: true });
+
+      const telemetry = await fetchUpstreamTelemetry(config);
+      const html = renderOperatorView({
+        meshSummary: telemetry.meshSummary,
+        epochSummary: telemetry.epochSummary,
+        kybItems: [...telemetry.kybItems, ...provisionedTenants],
+        bannerMessage: `Provisioned ${tenantDid} (upstream status ${result.status})`,
       });
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);

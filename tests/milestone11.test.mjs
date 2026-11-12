@@ -12,6 +12,7 @@ import {
   startAdminTestServer,
   createOperatorSessionToken,
   isOperatorAuthorized,
+  provisionB2bTenant,
 } from '../src/index.mjs';
 
 /**
@@ -120,5 +121,83 @@ test('Issue #7: enforces 401 when operatorToken is configured and authenticates 
     assert.equal(authedBearer.status, 200);
   } finally {
     await close();
+  }
+});
+
+test('Issue #8: provisionB2bTenant and POST /operator/tenants provision new enterprise did:web tenant on mock B2B server', async () => {
+  let receivedPayload = null;
+  let receivedAdminHeader = '';
+
+  const mockB2b = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/tenants') {
+      receivedAdminHeader = String(req.headers['x-sonaraim-admin-key'] ?? '');
+      let raw = '';
+      req.on('data', (c) => {
+        raw += c;
+      });
+      req.on('end', () => {
+        receivedPayload = JSON.parse(raw);
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'provisioned', tenantDid: receivedPayload.tenantDid }));
+      });
+      return;
+    }
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise((resolve) => mockB2b.listen(0, '127.0.0.1', resolve));
+  const b2bPort = mockB2b.address().port;
+
+  const cfg = Object.freeze({
+    b2bApiBaseUrl: `http://127.0.0.1:${b2bPort}`,
+    nodeApiBaseUrl: 'http://127.0.0.1:59999',
+    adminHttpPort: 0,
+  });
+
+  const { baseUrl, close } = await startAdminTestServer(cfg);
+  try {
+    const directRes = await provisionB2bTenant(cfg, {
+      tenantDid: 'did:web:hospital.example.com',
+      apiKey: 'b2b-key-hosp-1',
+      tier: 'ENTERPRISE_SOVEREIGN',
+      seats: 25,
+      adminKey: 'adm-secret-1',
+    });
+    assert.equal(directRes.ok, true);
+    assert.equal(receivedAdminHeader, 'adm-secret-1');
+    assert.equal(receivedPayload.tenantDid, 'did:web:hospital.example.com');
+
+    const formBody = new URLSearchParams({
+      tenantDid: 'did:web:retail.example.com',
+      apiKey: 'b2b-key-retail-2',
+      tier: 'SMB_PRO',
+      seats: '12',
+      adminKey: 'adm-secret-2',
+    }).toString();
+
+    const postRes = await requestHttp(`${baseUrl}/operator/tenants`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': String(Buffer.byteLength(formBody)),
+      },
+      body: formBody,
+    });
+
+    assert.equal(postRes.status, 200);
+    assert.match(postRes.body, /did:web:retail\.example\.com/);
+    assert.equal(receivedAdminHeader, 'adm-secret-2');
+
+    const metricsRes = await requestHttp(`${baseUrl}/metrics`);
+    assert.match(metricsRes.body, /sonaraim_admin_tenants_provisioned_total 1/);
+  } finally {
+    await close();
+    await new Promise((resolve) => mockB2b.close(resolve));
   }
 });

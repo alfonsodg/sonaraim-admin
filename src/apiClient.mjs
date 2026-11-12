@@ -1,7 +1,7 @@
 /**
- * @fileoverview Upstream telemetry HTTP client for Sonaraim Operator Console.
- * Queries configured Node and B2B API endpoints with bounded timeouts and feeds
- * evaluateMeshHealth / evaluateMerkleEpochSync with graceful offline fallback.
+ * @fileoverview Upstream telemetry and provisioning HTTP client for Sonaraim Admin Console.
+ * Queries configured Node and B2B API endpoints with bounded timeouts and dispatches
+ * live B2B tenant onboarding requests.
  */
 
 import { evaluateMeshHealth, evaluateMerkleEpochSync } from './operatorConsole.mjs';
@@ -104,4 +104,43 @@ export async function fetchUpstreamTelemetry(config, { timeoutMs = 500 } = {}) {
     },
     kybItems: [{ did: 'did:web:clinic.example.com', verified: true, tlsValid: true }],
   });
+}
+
+/**
+ * Provisions a new enterprise `did:web` tenant on the upstream `sonaraim-b2b` gateway.
+ *
+ * @param {Readonly<{b2bApiBaseUrl: string}>} config - Admin configuration.
+ * @param {object} params - Tenant onboarding parameters.
+ * @param {string} params.tenantDid - Verified enterprise `did:web` identifier.
+ * @param {string} params.apiKey - Initial B2B API key for the tenant.
+ * @param {string} [params.tier='SMB_PRO'] - Subscription tier.
+ * @param {number} [params.seats=10] - Allowed operator seats.
+ * @param {string} [params.adminKey=''] - `X-Sonaraim-Admin-Key` header credential.
+ * @returns {Promise<{ok: boolean, status: number, data: object|null}>}
+ */
+export async function provisionB2bTenant(
+  config,
+  { tenantDid, apiKey, tier = 'SMB_PRO', seats = 10, adminKey = '' }
+) {
+  const effectiveAdminKey = String(adminKey || process.env.B2B_ADMIN_KEY || '').trim();
+  try {
+    const res = await fetch(`${config.b2bApiBaseUrl}/v1/tenants`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(effectiveAdminKey ? { 'X-Sonaraim-Admin-Key': effectiveAdminKey } : {}),
+      },
+      body: JSON.stringify({
+        tenantDid,
+        apiKey,
+        tier,
+        seats: Number(seats) || 10,
+      }),
+      signal: AbortSignal.timeout(1500),
+    });
+    const data = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 503, data: null };
+  }
 }

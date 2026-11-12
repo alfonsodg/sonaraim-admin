@@ -18,7 +18,7 @@ export {
 export { renderOperatorView } from './ui/operatorView.mjs';
 export { renderStudioView } from './ui/studioView.mjs';
 export { createTenantBillingLedger, computeAdminTakeRate } from './tenantBilling.mjs';
-export { fetchUpstreamTelemetry } from './apiClient.mjs';
+export { fetchUpstreamTelemetry, provisionB2bTenant } from './apiClient.mjs';
 export {
   createOperatorSessionToken,
   isOperatorAuthorized,
