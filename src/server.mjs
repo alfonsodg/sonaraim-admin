@@ -9,26 +9,40 @@ import { renderOperatorView } from './ui/operatorView.mjs';
 import { renderStudioView } from './ui/studioView.mjs';
 import { createTenantBillingLedger } from './tenantBilling.mjs';
 import {
-  buildSonaraimCard,
-  validateSonaraimCard,
-  createCardSigningManifest,
+  buildSonaraimCard, validateSonaraimCard, createCardSigningManifest,
 } from './cardStudio.mjs';
 import {
-  fetchUpstreamTelemetry,
-  provisionB2bTenant,
-  dispatchCardToB2b,
+  fetchUpstreamTelemetry, provisionB2bTenant, dispatchCardToB2b, registerNodePeer,
 } from './apiClient.mjs';
 import {
-  createOperatorSessionToken,
-  isOperatorAuthorized,
-  renderLoginView,
+  createOperatorSessionToken, isOperatorAuthorized, renderLoginView,
 } from './authGate.mjs';
 import {
-  parseRequestBody,
-  renderPrometheusMetrics,
-  sendJson,
-  sendHtml,
+  parseRequestBody, renderPrometheusMetrics, sendJson, sendHtml,
 } from './httpHelpers.mjs';
+
+/**
+ * Renders and sends the Operator Console view with up-to-date telemetry and peers.
+ */
+async function replyOperatorView(res, config, tenants, peers, metrics, banner = '') {
+  metrics.telemetryScrapesTotal += 1;
+  const tel = await fetchUpstreamTelemetry(config);
+  metrics.nodeReachable = tel.nodeReachable;
+  metrics.b2bReachable = tel.b2bReachable;
+  const allPeers = [...(tel.peers ?? []), ...peers];
+  sendHtml(
+    res,
+    200,
+    renderOperatorView({
+      meshSummary: tel.meshSummary,
+      epochSummary: tel.epochSummary,
+      kybItems: [...tel.kybItems, ...tenants],
+      peerCount: Math.max(tel.peerCount ?? 0, allPeers.length),
+      peers: allPeers,
+      bannerMessage: banner,
+    })
+  );
+}
 
 /**
  * Creates the HTTP request handler wired to the validated Admin configuration.
@@ -38,9 +52,7 @@ import {
  */
 export function createAdminRequestHandler(config) {
   const defaultLedger = createTenantBillingLedger({
-    tenantDid: 'did:web:clinic.example.com',
-    tier: 'SMB_PRO',
-    maxSeats: 10,
+    tenantDid: 'did:web:clinic.example.com', tier: 'SMB_PRO', maxSeats: 10,
   });
 
   let studioState = {
@@ -52,11 +64,13 @@ export function createAdminRequestHandler(config) {
   };
 
   const provisionedTenants = [];
+  const registeredPeers = [];
 
   const metricsState = {
     httpRequestsTotal: 0,
     studioCardsBuiltTotal: 0,
     tenantsProvisionedTotal: 0,
+    peersRegisteredTotal: 0,
     telemetryScrapesTotal: 0,
     nodeReachable: false,
     b2bReachable: false,
@@ -68,10 +82,8 @@ export function createAdminRequestHandler(config) {
 
     if (req.method === 'GET' && url.pathname === '/health') {
       sendJson(res, 200, {
-        status: 'ok',
-        service: 'sonaraim-admin',
-        b2bApiBaseUrl: config.b2bApiBaseUrl,
-        nodeApiBaseUrl: config.nodeApiBaseUrl,
+        status: 'ok', service: 'sonaraim-admin',
+        b2bApiBaseUrl: config.b2bApiBaseUrl, nodeApiBaseUrl: config.nodeApiBaseUrl,
       });
       return;
     }
@@ -121,16 +133,7 @@ export function createAdminRequestHandler(config) {
     }
 
     if (req.method === 'GET' && url.pathname === '/operator') {
-      metricsState.telemetryScrapesTotal += 1;
-      const telemetry = await fetchUpstreamTelemetry(config);
-      metricsState.nodeReachable = telemetry.nodeReachable;
-      metricsState.b2bReachable = telemetry.b2bReachable;
-      const html = renderOperatorView({
-        meshSummary: telemetry.meshSummary,
-        epochSummary: telemetry.epochSummary,
-        kybItems: [...telemetry.kybItems, ...provisionedTenants],
-      });
-      sendHtml(res, 200, html);
+      await replyOperatorView(res, config, provisionedTenants, registeredPeers, metricsState);
       return;
     }
 
@@ -157,14 +160,40 @@ export function createAdminRequestHandler(config) {
       metricsState.tenantsProvisionedTotal += 1;
       provisionedTenants.push({ did: tenantDid, verified: true, tlsValid: true });
 
-      const telemetry = await fetchUpstreamTelemetry(config);
-      const html = renderOperatorView({
-        meshSummary: telemetry.meshSummary,
-        epochSummary: telemetry.epochSummary,
-        kybItems: [...telemetry.kybItems, ...provisionedTenants],
-        bannerMessage: `Provisioned ${tenantDid} (upstream status ${result.status})`,
-      });
-      sendHtml(res, 200, html);
+      await replyOperatorView(
+        res,
+        config,
+        provisionedTenants,
+        registeredPeers,
+        metricsState,
+        `Provisioned ${tenantDid} (upstream status ${result.status})`
+      );
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/operator/peers') {
+      const body = await parseRequestBody(req).catch(() => ({}));
+      const peerId = String(body.peerId ?? body.peer_id ?? '').trim();
+      const rpcUrl = String(body.rpcUrl ?? body.rpc_url ?? '').trim();
+      const multiaddr = String(body.multiaddr ?? '').trim();
+
+      if (!peerId || !rpcUrl) {
+        sendJson(res, 400, { error: 'invalid_peer_payload' });
+        return;
+      }
+
+      const result = await registerNodePeer(config, { peerId, rpcUrl, multiaddr });
+      metricsState.peersRegisteredTotal += 1;
+      registeredPeers.push({ peerId, rpcUrl, multiaddr });
+
+      await replyOperatorView(
+        res,
+        config,
+        provisionedTenants,
+        registeredPeers,
+        metricsState,
+        `Registered peer ${peerId} (upstream status ${result.status})`
+      );
       return;
     }
 
@@ -194,14 +223,7 @@ export function createAdminRequestHandler(config) {
         tenantDid,
         title: cardTitle,
         components: [{ id: 'hdr_1', type: 'header', text: cardTitle }],
-        actions: [
-          {
-            id: 'act_1',
-            type: 'submit_intent',
-            label: actionLabel,
-            intentType: 'studio.card.submit',
-          },
-        ],
+        actions: [{ id: 'act_1', type: 'submit_intent', label: actionLabel, intentType: 'studio.card.submit' }],
       });
 
       const validation = validateSonaraimCard(card);
@@ -264,9 +286,8 @@ export function startAdminTestServer(config) {
     server.on('error', reject);
     server.listen(config.adminHttpPort, '127.0.0.1', () => {
       const addr = server.address();
-      const baseUrl = `http://127.0.0.1:${addr.port}`;
       resolve({
-        baseUrl,
+        baseUrl: `http://127.0.0.1:${addr.port}`,
         close: () => new Promise((resClose) => server.close(() => resClose())),
       });
     });

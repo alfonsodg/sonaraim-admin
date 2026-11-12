@@ -22,6 +22,7 @@ export {
   fetchUpstreamTelemetry,
   provisionB2bTenant,
   dispatchCardToB2b,
+  registerNodePeer,
 } from './apiClient.mjs';
 export {
   createOperatorSessionToken,

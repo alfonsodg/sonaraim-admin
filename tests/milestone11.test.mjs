@@ -14,6 +14,7 @@ import {
   isOperatorAuthorized,
   provisionB2bTenant,
   dispatchCardToB2b,
+  registerNodePeer,
 } from '../src/index.mjs';
 
 /**
@@ -279,5 +280,96 @@ test('Issue #9: POST /studio/cards dispatches built card live to sonaraim-b2b PO
   } finally {
     await close();
     await new Promise((resolve) => mockB2b.close(resolve));
+  }
+});
+
+test('Issue #10: registerNodePeer and POST /operator/peers register peer node on mock sonaraim-node and update live peer count', async () => {
+  let receivedPeerPayload = null;
+
+  const mockNode = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/v1/p2p/peers') {
+      let raw = '';
+      req.on('data', (c) => {
+        raw += c;
+      });
+      req.on('end', () => {
+        receivedPeerPayload = JSON.parse(raw);
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            status: 'registered',
+            peer_id: receivedPeerPayload.peer_id || receivedPeerPayload.peerId,
+          })
+        );
+      });
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/v1/p2p/peers') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          peer_count: receivedPeerPayload ? 1 : 0,
+          peers: receivedPeerPayload ? [receivedPeerPayload] : [],
+        })
+      );
+      return;
+    }
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok' }));
+      return;
+    }
+    if (req.url === '/v1/identity/anchors/latest') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ epoch: 1, merkleRoot: '0'.repeat(64) }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise((resolve) => mockNode.listen(0, '127.0.0.1', resolve));
+  const nodePort = mockNode.address().port;
+
+  const cfg = Object.freeze({
+    b2bApiBaseUrl: 'http://127.0.0.1:59998',
+    nodeApiBaseUrl: `http://127.0.0.1:${nodePort}`,
+    adminHttpPort: 0,
+  });
+
+  const { baseUrl, close } = await startAdminTestServer(cfg);
+  try {
+    const directRes = await registerNodePeer(cfg, {
+      peerId: 'peer-eu-central',
+      rpcUrl: 'http://127.0.0.1:8081',
+      multiaddr: '/ip4/127.0.0.1/udp/9001/quic-v1',
+    });
+    assert.equal(directRes.ok, true);
+    assert.equal(receivedPeerPayload.peerId, 'peer-eu-central');
+
+    const formBody = new URLSearchParams({
+      peerId: 'peer-us-east',
+      rpcUrl: 'http://127.0.0.1:8082',
+      multiaddr: '/ip4/127.0.0.1/udp/9002/quic-v1',
+    }).toString();
+
+    const postRes = await requestHttp(`${baseUrl}/operator/peers`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': String(Buffer.byteLength(formBody)),
+      },
+      body: formBody,
+    });
+
+    assert.equal(postRes.status, 200);
+    assert.match(postRes.body, /peer-us-east/);
+    assert.match(postRes.body, /Connected Peers: <strong>[1-9]/);
+
+    const metricsRes = await requestHttp(`${baseUrl}/metrics`);
+    assert.match(metricsRes.body, /sonaraim_admin_peers_registered_total 1/);
+  } finally {
+    await close();
+    await new Promise((resolve) => mockNode.close(resolve));
   }
 });

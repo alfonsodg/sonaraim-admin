@@ -39,10 +39,11 @@ async function probeJsonEndpoint(url, timeoutMs) {
  * @returns {Promise<Readonly<object>>} Aggregated operator telemetry snapshot.
  */
 export async function fetchUpstreamTelemetry(config, { timeoutMs = 500 } = {}) {
-  const [nodeHealth, anchorProbe, b2bHealth] = await Promise.all([
+  const [nodeHealth, anchorProbe, b2bHealth, peersProbe] = await Promise.all([
     probeJsonEndpoint(`${config.nodeApiBaseUrl}/health`, timeoutMs),
     probeJsonEndpoint(`${config.nodeApiBaseUrl}/v1/identity/anchors/latest`, timeoutMs),
     probeJsonEndpoint(`${config.b2bApiBaseUrl}/health`, timeoutMs),
+    probeJsonEndpoint(`${config.nodeApiBaseUrl}/v1/p2p/peers`, timeoutMs),
   ]);
 
   const anyReachable = nodeHealth.ok || b2bHealth.ok;
@@ -88,14 +89,29 @@ export async function fetchUpstreamTelemetry(config, { timeoutMs = 500 } = {}) {
     { maxAllowedEpochDrift: 2 }
   );
 
+  let peerList = [];
+  if (Array.isArray(peersProbe.data)) {
+    peerList = peersProbe.data;
+  } else if (Array.isArray(peersProbe.data?.peers)) {
+    peerList = peersProbe.data.peers;
+  }
+  const livePeerCount = Number(
+    peersProbe.data?.peer_count ??
+    peersProbe.data?.count ??
+    peerList.length ??
+    0
+  );
+
   return Object.freeze({
     nodeReachable: nodeHealth.ok,
     b2bReachable: b2bHealth.ok,
     latestAnchor: anchorProbe.data,
+    peerCount: livePeerCount,
+    peers: peerList,
     meshSummary: {
       status: meshReport.status.toUpperCase(),
-      healthyCount: meshReport.connectedNodes - meshReport.degradedNodes.length,
-      totalCount: meshReport.totalNodes,
+      healthyCount: Math.max(livePeerCount, meshReport.connectedNodes - meshReport.degradedNodes.length),
+      totalCount: Math.max(livePeerCount, meshReport.totalNodes),
     },
     epochSummary: {
       inSync: syncReport.inSync,
@@ -191,5 +207,39 @@ export async function dispatchCardToB2b(
     };
   } catch {
     return { ok: false, dispatched: false, status: 503, route: null, relayed: false };
+  }
+}
+
+/**
+ * Registers an external decentralized peer node with upstream `sonaraim-node` daemon.
+ *
+ * @param {Readonly<{nodeApiBaseUrl: string}>} config - Admin configuration.
+ * @param {object} params - Peer registration parameters.
+ * @param {string} params.peerId - Unique peer node identifier.
+ * @param {string} [params.rpcUrl=''] - HTTP RPC endpoint for cross-node replication and gossip.
+ * @param {string} [params.multiaddr=''] - QUIC multiaddr connection string.
+ * @returns {Promise<{ok: boolean, status: number, data: object|null}>}
+ */
+export async function registerNodePeer(
+  config,
+  { peerId, rpcUrl = '', multiaddr = '' }
+) {
+  try {
+    const res = await fetch(`${config.nodeApiBaseUrl}/v1/p2p/peers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        peer_id: peerId,
+        peerId,
+        rpc_url: rpcUrl,
+        rpcUrl,
+        multiaddr,
+      }),
+      signal: AbortSignal.timeout(1500),
+    });
+    const data = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 503, data: null };
   }
 }
