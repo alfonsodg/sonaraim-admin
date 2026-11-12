@@ -15,3 +15,7 @@ export {
   evaluateMerkleEpochSync,
   evaluateKybChecklist,
 } from './operatorConsole.mjs';
+export { renderOperatorView } from './ui/operatorView.mjs';
+export { renderStudioView } from './ui/studioView.mjs';
+export { createTenantBillingLedger, computeAdminTakeRate } from './tenantBilling.mjs';
+export { createAdminRequestHandler, startAdminTestServer } from './server.mjs';
