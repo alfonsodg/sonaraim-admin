@@ -1,7 +1,7 @@
 /**
  * @fileoverview Entry point re-exporting all Sonaraim Admin Console modules:
  * zero-hardcode runtime configuration, B2B Tenant Card Studio builder/validator,
- * and Super Admin / Node Operator telemetry evaluators.
+ * Super Admin / Node Operator telemetry evaluators, and upstream telemetry client.
  */
 
 export { loadAdminConfig } from './config.mjs';
@@ -18,4 +18,5 @@ export {
 export { renderOperatorView } from './ui/operatorView.mjs';
 export { renderStudioView } from './ui/studioView.mjs';
 export { createTenantBillingLedger, computeAdminTakeRate } from './tenantBilling.mjs';
+export { fetchUpstreamTelemetry } from './apiClient.mjs';
 export { createAdminRequestHandler, startAdminTestServer } from './server.mjs';

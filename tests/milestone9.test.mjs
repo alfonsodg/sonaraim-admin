@@ -11,6 +11,7 @@ import http from 'node:http';
 import {
   renderStudioView,
   startAdminTestServer,
+  fetchUpstreamTelemetry,
 } from '../src/index.mjs';
 
 /**
@@ -138,5 +139,78 @@ test('Issue #5: POST /studio/cards builds valid card from form-urlencoded and JS
     assert.match(badRes.body, /tenant_did/i);
   } finally {
     await close();
+  }
+});
+
+test('Issue #6: GET /api/live-telemetry aggregates status from mock upstream Node and B2B servers and GET /metrics returns Prometheus counters', async () => {
+  const mockNode = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', service: 'sonaraim-node' }));
+      return;
+    }
+    if (req.url === '/v1/identity/anchors/latest') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          epoch: 12,
+          merkleRoot: 'abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234',
+        })
+      );
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  const mockB2b = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', service: 'sonaraim-b2b' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise((resolve) => mockNode.listen(0, '127.0.0.1', resolve));
+  await new Promise((resolve) => mockB2b.listen(0, '127.0.0.1', resolve));
+
+  const nodePort = mockNode.address().port;
+  const b2bPort = mockB2b.address().port;
+
+  const cfg = Object.freeze({
+    b2bApiBaseUrl: `http://127.0.0.1:${b2bPort}`,
+    nodeApiBaseUrl: `http://127.0.0.1:${nodePort}`,
+    adminHttpPort: 0,
+  });
+
+  const { baseUrl, close } = await startAdminTestServer(cfg);
+  try {
+    const directTelemetry = await fetchUpstreamTelemetry(cfg);
+    assert.equal(directTelemetry.nodeReachable, true);
+    assert.equal(directTelemetry.b2bReachable, true);
+    assert.equal(directTelemetry.meshSummary.status, 'HEALTHY');
+
+    const telemetryRes = await requestHttp(`${baseUrl}/api/live-telemetry`);
+    assert.equal(telemetryRes.status, 200);
+    const parsed = JSON.parse(telemetryRes.body);
+    assert.equal(parsed.nodeReachable, true);
+    assert.equal(parsed.b2bReachable, true);
+    assert.equal(parsed.meshSummary.healthyCount, 2);
+
+    const operatorRes = await requestHttp(`${baseUrl}/operator`);
+    assert.equal(operatorRes.status, 200);
+    assert.match(operatorRes.body, /HEALTHY/);
+
+    const metricsRes = await requestHttp(`${baseUrl}/metrics`);
+    assert.equal(metricsRes.status, 200);
+    assert.match(String(metricsRes.headers['content-type']), /text\/plain;\s*version=0\.0\.4/);
+    assert.match(metricsRes.body, /sonaraim_admin_http_requests_total/);
+    assert.match(metricsRes.body, /sonaraim_admin_studio_cards_built_total/);
+  } finally {
+    await close();
+    await new Promise((resolve) => mockNode.close(resolve));
+    await new Promise((resolve) => mockB2b.close(resolve));
   }
 });

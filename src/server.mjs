@@ -1,5 +1,6 @@
 /**
- * @fileoverview Lightweight Node.js HTTP server for Sonaraim Admin Console views and billing API.
+ * @fileoverview Lightweight Node.js HTTP server for Sonaraim Admin Console views,
+ * interactive Card Studio builder, live upstream telemetry, and Prometheus metrics.
  */
 
 import http from 'node:http';
@@ -11,6 +12,7 @@ import {
   validateSonaraimCard,
   createCardSigningManifest,
 } from './cardStudio.mjs';
+import { fetchUpstreamTelemetry } from './apiClient.mjs';
 
 /**
  * Reads and parses the incoming HTTP request body as JSON or URL-encoded form parameters.
@@ -49,6 +51,31 @@ function parseRequestBody(req) {
 }
 
 /**
+ * Formats internal counters and upstream state in Prometheus 0.0.4 text format.
+ *
+ * @param {{httpRequestsTotal: number, studioCardsBuiltTotal: number, telemetryScrapesTotal: number, nodeReachable: boolean, b2bReachable: boolean}} m
+ * @returns {string} Prometheus exposition payload.
+ */
+function renderPrometheusMetrics(m) {
+  return [
+    '# HELP sonaraim_admin_http_requests_total Total HTTP requests handled by sonaraim-admin',
+    '# TYPE sonaraim_admin_http_requests_total counter',
+    `sonaraim_admin_http_requests_total ${m.httpRequestsTotal}`,
+    '# HELP sonaraim_admin_studio_cards_built_total Total declarative cards built via POST /studio/cards',
+    '# TYPE sonaraim_admin_studio_cards_built_total counter',
+    `sonaraim_admin_studio_cards_built_total ${m.studioCardsBuiltTotal}`,
+    '# HELP sonaraim_admin_telemetry_scrapes_total Total live telemetry evaluations performed',
+    '# TYPE sonaraim_admin_telemetry_scrapes_total counter',
+    `sonaraim_admin_telemetry_scrapes_total ${m.telemetryScrapesTotal}`,
+    '# HELP sonaraim_admin_upstream_reachable Upstream service reachability gauge (1 = reachable, 0 = unreachable)',
+    '# TYPE sonaraim_admin_upstream_reachable gauge',
+    `sonaraim_admin_upstream_reachable{upstream="node"} ${m.nodeReachable ? 1 : 0}`,
+    `sonaraim_admin_upstream_reachable{upstream="b2b"} ${m.b2bReachable ? 1 : 0}`,
+    '',
+  ].join('\n');
+}
+
+/**
  * Creates the HTTP request handler wired to the validated Admin configuration.
  *
  * @param {Readonly<{b2bApiBaseUrl: string, nodeApiBaseUrl: string, adminHttpPort: number}>} config
@@ -69,8 +96,18 @@ export function createAdminRequestHandler(config) {
     actionsCount: 2,
   };
 
+  const metricsState = {
+    httpRequestsTotal: 0,
+    studioCardsBuiltTotal: 0,
+    telemetryScrapesTotal: 0,
+    nodeReachable: false,
+    b2bReachable: false,
+  };
+
   return async (req, res) => {
+    metricsState.httpRequestsTotal += 1;
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+
     if (req.method === 'GET' && url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
@@ -84,11 +121,31 @@ export function createAdminRequestHandler(config) {
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/metrics') {
+      res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
+      res.end(renderPrometheusMetrics(metricsState));
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/live-telemetry') {
+      metricsState.telemetryScrapesTotal += 1;
+      const telemetry = await fetchUpstreamTelemetry(config);
+      metricsState.nodeReachable = telemetry.nodeReachable;
+      metricsState.b2bReachable = telemetry.b2bReachable;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ service: 'sonaraim-admin', ...telemetry }));
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/operator') {
+      metricsState.telemetryScrapesTotal += 1;
+      const telemetry = await fetchUpstreamTelemetry(config);
+      metricsState.nodeReachable = telemetry.nodeReachable;
+      metricsState.b2bReachable = telemetry.b2bReachable;
       const html = renderOperatorView({
-        meshSummary: { status: 'HEALTHY', healthyCount: 3, totalCount: 3 },
-        epochSummary: { inSync: true, maxDriftEpochs: 0 },
-        kybItems: [{ did: 'did:web:clinic.example.com', verified: true, tlsValid: true }],
+        meshSummary: telemetry.meshSummary,
+        epochSummary: telemetry.epochSummary,
+        kybItems: telemetry.kybItems,
       });
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
@@ -140,6 +197,7 @@ export function createAdminRequestHandler(config) {
       }
 
       const manifest = createCardSigningManifest(card, new Date().toISOString());
+      metricsState.studioCardsBuiltTotal += 1;
       studioState = {
         tenantDid: card.tenant_did,
         cardTitle: card.title,

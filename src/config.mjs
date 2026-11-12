@@ -1,14 +1,8 @@
 /**
  * @fileoverview Zero-hardcode configuration loader for the Sonaraim Admin Console.
- * Strictly loads and validates VITE_B2B_API_BASE_URL, VITE_NODE_API_BASE_URL,
- * and ADMIN_HTTP_PORT from the environment without hardcoded fallbacks.
+ * Strictly loads and validates VITE_B2B_API_BASE_URL (or B2B_API_BASE_URL),
+ * VITE_NODE_API_BASE_URL (or NODE_API_BASE_URL), and ADMIN_HTTP_PORT from the environment.
  */
-
-const REQUIRED_ENV_KEYS = Object.freeze([
-  'VITE_B2B_API_BASE_URL',
-  'VITE_NODE_API_BASE_URL',
-  'ADMIN_HTTP_PORT',
-]);
 
 /**
  * Validates and normalizes an HTTP/HTTPS URL string from an environment variable.
@@ -66,16 +60,24 @@ export function loadAdminConfig(env = process.env) {
     throw new Error('Environment source must be a valid object');
   }
 
-  for (const key of REQUIRED_ENV_KEYS) {
-    const val = env[key];
-    if (val === undefined || val === null || String(val).trim() === '') {
-      throw new Error(`Missing required environment variable: ${key}`);
-    }
+  const rawB2b = env.VITE_B2B_API_BASE_URL ?? env.B2B_API_BASE_URL;
+  if (rawB2b === undefined || rawB2b === null || String(rawB2b).trim() === '') {
+    throw new Error('Missing required environment variable: VITE_B2B_API_BASE_URL');
   }
 
-  const b2bApiBaseUrl = parseBaseUrl('VITE_B2B_API_BASE_URL', String(env.VITE_B2B_API_BASE_URL).trim());
-  const nodeApiBaseUrl = parseBaseUrl('VITE_NODE_API_BASE_URL', String(env.VITE_NODE_API_BASE_URL).trim());
-  const adminHttpPort = parsePort('ADMIN_HTTP_PORT', String(env.ADMIN_HTTP_PORT).trim());
+  const rawNode = env.VITE_NODE_API_BASE_URL ?? env.NODE_API_BASE_URL;
+  if (rawNode === undefined || rawNode === null || String(rawNode).trim() === '') {
+    throw new Error('Missing required environment variable: VITE_NODE_API_BASE_URL');
+  }
+
+  const rawPort = env.ADMIN_HTTP_PORT;
+  if (rawPort === undefined || rawPort === null || String(rawPort).trim() === '') {
+    throw new Error('Missing required environment variable: ADMIN_HTTP_PORT');
+  }
+
+  const b2bApiBaseUrl = parseBaseUrl('VITE_B2B_API_BASE_URL', String(rawB2b).trim());
+  const nodeApiBaseUrl = parseBaseUrl('VITE_NODE_API_BASE_URL', String(rawNode).trim());
+  const adminHttpPort = parsePort('ADMIN_HTTP_PORT', String(rawPort).trim());
 
   return Object.freeze({
     b2bApiBaseUrl,
