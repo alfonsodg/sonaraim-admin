@@ -1,6 +1,6 @@
 /**
  * @fileoverview Lightweight Node.js HTTP server for Sonaraim Admin Console views,
- * interactive Card Studio builder, live upstream telemetry, and Prometheus metrics.
+ * Zero-Trust operator login, interactive Card Studio builder, and live telemetry.
  */
 
 import http from 'node:http';
@@ -13,72 +13,17 @@ import {
   createCardSigningManifest,
 } from './cardStudio.mjs';
 import { fetchUpstreamTelemetry } from './apiClient.mjs';
-
-/**
- * Reads and parses the incoming HTTP request body as JSON or URL-encoded form parameters.
- *
- * @param {http.IncomingMessage} req - Incoming HTTP request.
- * @returns {Promise<Record<string, string>>} Parsed key-value payload.
- */
-function parseRequestBody(req) {
-  return new Promise((resolve, reject) => {
-    let raw = '';
-    req.on('data', (chunk) => {
-      raw += chunk;
-      if (raw.length > 65536) {
-        reject(new Error('Payload too large'));
-      }
-    });
-    req.on('end', () => {
-      const contentType = String(req.headers['content-type'] ?? '').toLowerCase();
-      if (!raw.trim()) {
-        resolve({});
-        return;
-      }
-      if (contentType.includes('application/json')) {
-        try {
-          resolve(JSON.parse(raw));
-        } catch {
-          reject(new Error('Malformed JSON payload'));
-        }
-        return;
-      }
-      const params = new URLSearchParams(raw);
-      resolve(Object.fromEntries(params.entries()));
-    });
-    req.on('error', reject);
-  });
-}
-
-/**
- * Formats internal counters and upstream state in Prometheus 0.0.4 text format.
- *
- * @param {{httpRequestsTotal: number, studioCardsBuiltTotal: number, telemetryScrapesTotal: number, nodeReachable: boolean, b2bReachable: boolean}} m
- * @returns {string} Prometheus exposition payload.
- */
-function renderPrometheusMetrics(m) {
-  return [
-    '# HELP sonaraim_admin_http_requests_total Total HTTP requests handled by sonaraim-admin',
-    '# TYPE sonaraim_admin_http_requests_total counter',
-    `sonaraim_admin_http_requests_total ${m.httpRequestsTotal}`,
-    '# HELP sonaraim_admin_studio_cards_built_total Total declarative cards built via POST /studio/cards',
-    '# TYPE sonaraim_admin_studio_cards_built_total counter',
-    `sonaraim_admin_studio_cards_built_total ${m.studioCardsBuiltTotal}`,
-    '# HELP sonaraim_admin_telemetry_scrapes_total Total live telemetry evaluations performed',
-    '# TYPE sonaraim_admin_telemetry_scrapes_total counter',
-    `sonaraim_admin_telemetry_scrapes_total ${m.telemetryScrapesTotal}`,
-    '# HELP sonaraim_admin_upstream_reachable Upstream service reachability gauge (1 = reachable, 0 = unreachable)',
-    '# TYPE sonaraim_admin_upstream_reachable gauge',
-    `sonaraim_admin_upstream_reachable{upstream="node"} ${m.nodeReachable ? 1 : 0}`,
-    `sonaraim_admin_upstream_reachable{upstream="b2b"} ${m.b2bReachable ? 1 : 0}`,
-    '',
-  ].join('\n');
-}
+import {
+  createOperatorSessionToken,
+  isOperatorAuthorized,
+  renderLoginView,
+} from './authGate.mjs';
+import { parseRequestBody, renderPrometheusMetrics } from './httpHelpers.mjs';
 
 /**
  * Creates the HTTP request handler wired to the validated Admin configuration.
  *
- * @param {Readonly<{b2bApiBaseUrl: string, nodeApiBaseUrl: string, adminHttpPort: number}>} config
+ * @param {Readonly<{b2bApiBaseUrl: string, nodeApiBaseUrl: string, adminHttpPort: number, operatorToken?: string}>} config
  * @returns {http.RequestListener}
  */
 export function createAdminRequestHandler(config) {
@@ -99,6 +44,7 @@ export function createAdminRequestHandler(config) {
   const metricsState = {
     httpRequestsTotal: 0,
     studioCardsBuiltTotal: 0,
+    tenantsProvisionedTotal: 0,
     telemetryScrapesTotal: 0,
     nodeReachable: false,
     b2bReachable: false,
@@ -124,6 +70,48 @@ export function createAdminRequestHandler(config) {
     if (req.method === 'GET' && url.pathname === '/metrics') {
       res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' });
       res.end(renderPrometheusMetrics(metricsState));
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/login') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderLoginView());
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/login') {
+      let body = {};
+      try {
+        body = await parseRequestBody(req);
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'bad_request', message: err.message }));
+        return;
+      }
+      const candidate = String(body.operatorToken ?? body.token ?? '').trim();
+      const requiredToken = String(
+        config?.operatorToken ?? process.env.ADMIN_OPERATOR_TOKEN ?? ''
+      ).trim();
+
+      if (requiredToken && candidate !== requiredToken) {
+        res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(renderLoginView({ error: 'Invalid operator token' }));
+        return;
+      }
+
+      const tokenForHmac = requiredToken || candidate || 'dev-operator-token';
+      const sessionVal = createOperatorSessionToken(tokenForHmac);
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Set-Cookie': `sonaraim_operator_session=${sessionVal}; HttpOnly; Path=/; SameSite=Lax`,
+      });
+      res.end(renderLoginView({ authenticated: true }));
+      return;
+    }
+
+    if (!isOperatorAuthorized(req, config)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized', loginUrl: '/login' }));
       return;
     }
 
@@ -233,7 +221,7 @@ export function createAdminRequestHandler(config) {
 /**
  * Starts the Admin Console HTTP server on `127.0.0.1` (ephemeral port when `adminHttpPort === 0`).
  *
- * @param {Readonly<{b2bApiBaseUrl: string, nodeApiBaseUrl: string, adminHttpPort: number}>} config
+ * @param {Readonly<{b2bApiBaseUrl: string, nodeApiBaseUrl: string, adminHttpPort: number, operatorToken?: string}>} config
  * @returns {Promise<{baseUrl: string, close: () => Promise<void>}>}
  */
 export function startAdminTestServer(config) {

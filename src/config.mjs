@@ -51,7 +51,7 @@ function parsePort(key, rawValue) {
  * Loads and validates the Sonaraim Admin Console runtime configuration.
  *
  * @param {Record<string, string|undefined>} [env=process.env] - Environment object to inspect.
- * @returns {Readonly<{b2bApiBaseUrl: string, nodeApiBaseUrl: string, adminHttpPort: number}>}
+ * @returns {Readonly<{b2bApiBaseUrl: string, nodeApiBaseUrl: string, adminHttpPort: number, operatorToken?: string}>}
  *   Frozen configuration object.
  * @throws {Error} If any required environment variable is missing or invalid.
  */
@@ -78,10 +78,12 @@ export function loadAdminConfig(env = process.env) {
   const b2bApiBaseUrl = parseBaseUrl('VITE_B2B_API_BASE_URL', String(rawB2b).trim());
   const nodeApiBaseUrl = parseBaseUrl('VITE_NODE_API_BASE_URL', String(rawNode).trim());
   const adminHttpPort = parsePort('ADMIN_HTTP_PORT', String(rawPort).trim());
+  const operatorToken = String(env.ADMIN_OPERATOR_TOKEN ?? '').trim() || undefined;
 
   return Object.freeze({
     b2bApiBaseUrl,
     nodeApiBaseUrl,
     adminHttpPort,
+    ...(operatorToken ? { operatorToken } : {}),
   });
 }
