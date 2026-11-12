@@ -6,6 +6,47 @@ import http from 'node:http';
 import { renderOperatorView } from './ui/operatorView.mjs';
 import { renderStudioView } from './ui/studioView.mjs';
 import { createTenantBillingLedger } from './tenantBilling.mjs';
+import {
+  buildSonaraimCard,
+  validateSonaraimCard,
+  createCardSigningManifest,
+} from './cardStudio.mjs';
+
+/**
+ * Reads and parses the incoming HTTP request body as JSON or URL-encoded form parameters.
+ *
+ * @param {http.IncomingMessage} req - Incoming HTTP request.
+ * @returns {Promise<Record<string, string>>} Parsed key-value payload.
+ */
+function parseRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 65536) {
+        reject(new Error('Payload too large'));
+      }
+    });
+    req.on('end', () => {
+      const contentType = String(req.headers['content-type'] ?? '').toLowerCase();
+      if (!raw.trim()) {
+        resolve({});
+        return;
+      }
+      if (contentType.includes('application/json')) {
+        try {
+          resolve(JSON.parse(raw));
+        } catch {
+          reject(new Error('Malformed JSON payload'));
+        }
+        return;
+      }
+      const params = new URLSearchParams(raw);
+      resolve(Object.fromEntries(params.entries()));
+    });
+    req.on('error', reject);
+  });
+}
 
 /**
  * Creates the HTTP request handler wired to the validated Admin configuration.
@@ -20,7 +61,15 @@ export function createAdminRequestHandler(config) {
     maxSeats: 10,
   });
 
-  return (req, res) => {
+  let studioState = {
+    tenantDid: 'did:web:clinic.example.com',
+    cardTitle: 'Order & Appointment Card',
+    actionLabel: 'Confirm Slot',
+    manifestHash: 'sha256-studio-preview',
+    actionsCount: 2,
+  };
+
+  return async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (req.method === 'GET' && url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -47,12 +96,59 @@ export function createAdminRequestHandler(config) {
     }
 
     if (req.method === 'GET' && url.pathname === '/studio') {
-      const html = renderStudioView({
-        tenantDid: 'did:web:clinic.example.com',
-        cardTitle: 'Order & Appointment Card',
-        manifestHash: 'sha256-studio-preview',
-        actionsCount: 2,
+      const html = renderStudioView(studioState);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/studio/cards') {
+      let body;
+      try {
+        body = await parseRequestBody(req);
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'bad_request', message: err.message }));
+        return;
+      }
+
+      const tenantDid = String(body.tenantDid ?? '').trim();
+      const cardTitle = String(body.cardTitle ?? '').trim();
+      const actionLabel = String(body.actionLabel ?? 'Confirm Action').trim();
+
+      const card = buildSonaraimCard({
+        cardId: 'card_studio_builder_v1',
+        version: '1.0.0',
+        tenantDid,
+        title: cardTitle,
+        components: [{ id: 'hdr_1', type: 'header', text: cardTitle }],
+        actions: [
+          {
+            id: 'act_1',
+            type: 'submit_intent',
+            label: actionLabel,
+            intentType: 'studio.card.submit',
+          },
+        ],
       });
+
+      const validation = validateSonaraimCard(card);
+      if (!validation.valid) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_card', errors: validation.errors }));
+        return;
+      }
+
+      const manifest = createCardSigningManifest(card, new Date().toISOString());
+      studioState = {
+        tenantDid: card.tenant_did,
+        cardTitle: card.title,
+        actionLabel,
+        manifestHash: manifest.payloadDigestHex,
+        actionsCount: card.actions.length,
+      };
+
+      const html = renderStudioView(studioState);
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;
