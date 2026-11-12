@@ -33,6 +33,7 @@ export function renderAdminShell({ title, activeTab, contentHtml }) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
   <title>${safeTitle}</title>
   <style>
     :root { --bg:#0b1020; --card:#131b33; --text:#eef2ff; --muted:#9fb0d6; --accent:#38bdf8; }
