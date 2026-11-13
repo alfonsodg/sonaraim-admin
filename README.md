@@ -2,11 +2,17 @@
 
 > Dual-Console Web Application: Node Operator Telemetry & B2B Tenant Card Studio.
 
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Runtime: Node.js ESM](https://img.shields.io/badge/Runtime-Node.js%20ESM-339933.svg?logo=node.js&logoColor=white)](package.json)
+[![Role: Node Operator + Card Studio](https://img.shields.io/badge/Role-Node%20Operator%20%2B%20Card%20Studio-blueviolet.svg)](src/operatorConsole.mjs)
+[![Security: Zero-Trust Auth Gate](https://img.shields.io/badge/Security-Zero--Trust%20Auth%20Gate-green.svg)](src/authGate.mjs)
+[![Verification: did:web KYB](https://img.shields.io/badge/Verification-did%3Aweb%20KYB-informational.svg)](src/operatorConsole.mjs)
+
 `sonaraim-admin` provides the control plane, operational telemetry evaluators, and declarative UI authoring tools for the Sonaraim sovereign communication ecosystem. It cleanly separates infrastructure governance (Node Operator & Super Admin Console) from commercial message orchestration (B2B Tenant Console & Visual Card Studio) while preserving strict zero-knowledge and zero-remote-code-execution guarantees.
 
 ---
 
-## Key Capabilities
+## ⚡ Key Capabilities
 
 - **Super Admin & Node Operator Console (`src/operatorConsole.mjs`, `src/ui/operatorView.mjs`)**:
   - Real-time P2P relay mesh health evaluation (latency, packet loss, stream count, degraded node alerts).
@@ -29,7 +35,65 @@
 
 ---
 
-## HTTP Endpoints Summary
+## 📸 Screenshots
+
+| Node Operator Telemetry & KYB Console | Visual Card Studio & Schema Builder |
+| :---: | :---: |
+| ![Admin Operator Console](docs/images/admin-operator.png) | ![Admin Card Studio](docs/images/admin-studio.png) |
+
+---
+
+## 🏗️ Dual-Console Architecture & Data Flow
+
+The following ASCII diagram illustrates the operational segregation between Node Operator telemetry and B2B Card Studio workflows:
+
+```text
++-----------------------------------------------------------------------------------+
+|                        SONARAIM ADMIN DUAL-CONSOLE SYSTEM                         |
++-----------------------------------------------------------------------------------+
+|                                                                                   |
+|  [Node Operator / Super Admin]              [B2B Tenant / Enterprise Designer]    |
+|  - Authenticated via Session / Bearer       - Authenticated via Tenant Token      |
+|  - Controls mesh infrastructure             - Designs rich interactive cards      |
+|            |                                              |                       |
+|            v                                              v                       |
+|  +-----------------------------------------------------------------------------+  |
+|  |                 ZERO-TRUST OPERATOR AUTH GATE (authGate.mjs)                |  |
+|  |       Constant-time Bearer token & HMAC-SHA256 session cookie validation    |  |
+|  +-------------------------------------+---------------------------------------+  |
+|                                        |                                          |
+|                +-----------------------+----------------------+                   |
+|                |                                              |                   |
+|                v                                              v                   |
+|  +---------------------------+              +----------------------------------+  |
+|  |    NODE OPERATOR CONSOLE  |              |        VISUAL CARD STUDIO        |  |
+|  | (operatorConsole.mjs)     |              | (cardStudio.mjs, studioView.mjs) |  |
+|  |                           |              |                                  |  |
+|  | * P2P Relay Mesh Latency  |              | * Zero-HTML Component Tree       |  |
+|  | * Merkle Epoch Sync Drift |              | * Strict JSON Schema Validation  |  |
+|  | * Verifiable did:web KYB  |              | * JCS SHA-256 Digest Preview     |  |
+|  | * Dynamic Peer Additions  |              | * Direct Card Dispatch to B2B    |  |
+|  +-------------+-------------+              +-----------------+----------------+  |
+|                |                                              |                   |
+|                | Upstream Probing & Multiaddr                 | Message Dispatch  |
+|                v                                              v                   |
+|  +---------------------------+              +----------------------------------+  |
+|  |       sonaraim-node       |              |           sonaraim-b2b           |  |
+|  |     (Relay & Ledger)      |              |     (Enterprise E2EE Bridge)     |  |
+|  +---------------------------+              +----------------------------------+  |
+|                                                                                   |
+|  TELEMETRY & MONITORING:                                                          |
+|  - GET /api/live-telemetry -> Aggregated node latency, B2B uptime, Merkle head    |
+|  - GET /metrics -> Prometheus scrape target for operator dashboard metrics        |
++-----------------------------------------------------------------------------------+
+```
+
+> [!NOTE]
+> For full Mermaid sequence diagrams of authentication flows, KYB verification pipelines, and card signing workflows, see [docs/DIAGRAMS.md](docs/DIAGRAMS.md).
+
+---
+
+## 📊 HTTP Endpoints Summary
 
 | Method | Endpoint | Auth | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -47,7 +111,7 @@
 
 ---
 
-## Repository Layout
+## 🧩 Repository Layout
 
 ```text
 sonaraim-admin/
@@ -85,7 +149,7 @@ sonaraim-admin/
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Build & Test
 
@@ -99,7 +163,7 @@ npx --yes markdownlint-cli2 "*.md" "docs/*.md"
 
 ---
 
-## Collaboration & Governance
+## 🌐 Collaboration & Governance
 
 - **[Contributing Guide](CONTRIBUTING.md)** — Branching model (`develop`), TDD mandate, and commit conventions.
 - **[Code of Conduct](CODE_OF_CONDUCT.md)** — Community standards and enforcement guidelines.
@@ -110,7 +174,7 @@ npx --yes markdownlint-cli2 "*.md" "docs/*.md"
 
 ---
 
-## License
+## 📜 License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
 
