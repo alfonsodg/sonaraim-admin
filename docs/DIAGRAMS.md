@@ -1,57 +1,110 @@
 # System Diagrams (`sonaraim-admin`)
 
-> Mermaid architecture, sequence, and state diagrams for the Sonaraim Dual-Console Web Application.
+> Mermaid sequence, state, and interaction diagrams for `sonaraim-admin`.
 
-## 1. Dual-Console Component Architecture
+---
 
-```mermaid
-flowchart TD
-    Env["Environment Variables (.env)"] --> Config["src/config.mjs (loadAdminConfig)"]
-    Config --> CardStudio["src/cardStudio.mjs (B2B Card Studio)"]
-    Config --> OperatorConsole["src/operatorConsole.mjs (Node Operator Console)"]
-
-    CardStudio --> BuildCard["buildSonaraimCard()"]
-    CardStudio --> ValidateCard["validateSonaraimCard()"]
-    CardStudio --> SignManifest["createCardSigningManifest()"]
-
-    OperatorConsole --> MeshHealth["evaluateMeshHealth()"]
-    OperatorConsole --> MerkleSync["evaluateMerkleEpochSync()"]
-    OperatorConsole --> KybCheck["evaluateKybChecklist()"]
-
-    SignManifest --> B2BApi["sonaraim-b2b Gateway API"]
-    MeshHealth --> NodeApi["sonaraim-node Telemetry API"]
-    MerkleSync --> NodeApi
-```
-
-## 2. B2B Declarative Card Authoring & Signing Sequence
+## 1. Operator Zero-Trust Login & Session Validation Flow
 
 ```mermaid
 sequenceDiagram
-    participant Tenant as B2B Tenant Admin
-    participant Studio as Card Studio (cardStudio.mjs)
-    participant Signer as Tenant Ed25519 Hardware/Key Vault
-    participant B2B as sonaraim-b2b API
+    autonumber
+    participant Op as Node Operator
+    participant Admin as sonaraim-admin Server
+    participant Auth as AuthGate (authGate.mjs)
 
-    Tenant->>Studio: buildSonaraimCard(params)
-    Studio-->>Tenant: Frozen sonaraim.card.v1 payload
-    Tenant->>Studio: validateSonaraimCard(card)
-    Studio-->>Tenant: { valid: true, errors: [] }
-    Tenant->>Studio: createCardSigningManifest(card, issuedAtIso)
-    Studio-->>Tenant: { payloadDigestHex, algorithm: "Ed25519-BLAKE3" }
-    Tenant->>Signer: Sign payloadDigestHex with did:web private key
-    Signer-->>Tenant: Detached Ed25519 signature
-    Tenant->>B2B: Publish signed Sonaraim Card template
+    Op->>Admin: GET /operator (Unauthenticated)
+    Admin->>Auth: isOperatorAuthorized(req)
+    Auth-->>Admin: false (missing cookie/Bearer)
+    Admin-->>Op: 401 Unauthorized -> Redirect to /login
+    Op->>Admin: GET /login
+    Admin-->>Op: 200 OK (Accessible Login View)
+    Op->>Admin: POST /login (operatorToken)
+    Admin->>Auth: safeEqualString(token, requiredToken)
+    Auth->>Auth: createOperatorSessionToken(token)
+    Auth-->>Admin: sessionToken (HMAC-SHA256)
+    Admin-->>Op: 200 OK with Set-Cookie: sonaraim_operator_session=...
+    Op->>Admin: GET /operator (Cookie attached)
+    Admin->>Auth: isOperatorAuthorized(req)
+    Auth-->>Admin: true
+    Admin-->>Op: 200 OK (Rendered Operator Console)
 ```
 
-## 3. Node Operator P2P Mesh & Merkle Health State Machine
+---
+
+## 2. Card Studio Live Card Build & Dispatch Flow
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Healthy: All nodes connected & within latency/loss/epoch thresholds
-    Healthy --> Degraded: Node latency > maxHealthyLatencyMs or epoch drift > maxAllowedEpochDrift
-    Degraded --> Healthy: Relay metrics & Merkle epoch converge
-    Healthy --> Critical: Peer disconnected or Merkle split-brain detected
-    Degraded --> Critical: Peer disconnected or Merkle split-brain detected
-    Critical --> Degraded: Disconnected peer reconnects (catching up epochs)
-    Critical --> Healthy: Full mesh connectivity & Merkle root consensus restored
+sequenceDiagram
+    autonumber
+    participant Merchant as B2B Tenant Merchant
+    participant Studio as Visual Card Studio
+    participant Builder as cardStudio.mjs
+    participant B2B as sonaraim-b2b Gateway
+
+    Merchant->>Studio: POST /studio/cards (tenantDid, cardTitle, recipientDid)
+    Studio->>Builder: buildSonaraimCard(params)
+    Builder->>Builder: Validate schema & sanitize components (no HTML/eval)
+    Builder->>Builder: createCardSigningManifest(card)
+    Builder-->>Studio: Valid card + JCS SHA-256 digest
+    alt recipientDid provided
+        Studio->>B2B: POST /v1/messages (apiKey, recipientDid, card)
+        B2B-->>Studio: 200 OK (dispatched, message_id)
+    end
+    Studio-->>Merchant: 200 OK (Rendered preview + dispatch status)
+```
+
+---
+
+## 3. Upstream Telemetry Aggregation & Health Evaluation
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Prom as Prometheus / Operator
+    participant Admin as sonaraim-admin
+    participant Client as apiClient.mjs
+    participant Node as sonaraim-node
+    participant B2B as sonaraim-b2b
+
+    Prom->>Admin: GET /api/live-telemetry
+    Admin->>Client: fetchUpstreamTelemetry(config)
+    par Probe Relay Node
+        Client->>Node: GET /health (timeout 500ms)
+        Node-->>Client: 200 OK (node_id, queued_envelopes, kt_tree_head)
+    and Probe B2B Gateway
+        Client->>B2B: GET /health (timeout 500ms)
+        B2B-->>Client: 200 OK (service, registered_tenants)
+    end
+    Client-->>Admin: Aggregated telemetry state
+    Admin->>Admin: Update Prometheus counters
+    Admin-->>Prom: 200 OK (telemetry payload)
+```
+
+---
+
+## 4. Dynamic Peer Registration & Tenant Provisioning Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Op as Super Admin Operator
+    participant Admin as sonaraim-admin
+    participant Client as apiClient.mjs
+    participant Node as sonaraim-node
+    participant B2B as sonaraim-b2b
+
+    alt Peer Registration
+        Op->>Admin: POST /operator/peers (peerId, rpcUrl, multiaddr)
+        Admin->>Client: registerNodePeer(config, peerData)
+        Client->>Node: POST /v1/p2p/peers (Bearer Auth)
+        Node-->>Client: 200 OK
+        Admin-->>Op: 200 OK (Registered peer)
+    else Tenant Provisioning
+        Op->>Admin: POST /operator/tenants (tenantDid, apiKey, tier, seats)
+        Admin->>Client: provisionB2bTenant(config, tenantData)
+        Client->>B2B: POST /v1/tenants (Admin Auth)
+        B2B-->>Client: 201 Created
+        Admin-->>Op: 200 OK (Provisioned tenant)
+    end
 ```

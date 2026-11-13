@@ -1,79 +1,84 @@
-# Architecture Specification (`sonaraim-admin`)
+# System Architecture (`sonaraim-admin`)
 
-> System design, module boundaries, and ASCII data flows for the Sonaraim Dual-Console Web Application.
+> Dual-Console Administrative Interface for Federated Node Operators and Verified B2B Enterprise Tenants.
 
-## 1. Architectural Overview
+## 1. Overview
 
-`sonaraim-admin` serves two distinct operational personas through isolated logical modules backed by a zero-hardcode configuration layer:
+`sonaraim-admin` provides administrative oversight, operational telemetry evaluation, and declarative UI authoring tools for the Sonaraim sovereign communication ecosystem. It cleanly separates infrastructure operations (Node Operator Console) from commercial tenant orchestration (Visual Card Studio) while preserving strict zero-knowledge and zero-remote-code-execution guarantees.
 
-1. **Node Operator & Super Admin Console (`src/operatorConsole.mjs`)**: Monitors the health of the federated `libp2p` / QUIC relay mesh, verifies that global nodes maintain synchronized Merkle tree epochs without split-brain divergence, and audits B2B organization `did:web` KYB verification checklists.
-2. **B2B Tenant Console & Visual Card Studio (`src/cardStudio.mjs`)**: Enables verified commercial tenants to compose declarative `Sonaraim Cards`, validate them against strict schema rules that forbid remote code execution, and produce canonical cryptographic signing manifests.
+---
 
-## 2. System Component Topology (ASCII)
-
-```text
-+-------------------------------------------------------------------------+
-|                         sonaraim-adminRuntime                           |
-|                                                                         |
-|  +-------------------------------------------------------------------+  |
-|  |                     src/config.mjs (Zero-Hardcode)                |  |
-|  |   VITE_B2B_API_BASE_URL | VITE_NODE_API_BASE_URL | ADMIN_HTTP_PORT|  |
-|  +-------------------+-------------------------------+---------------+  |
-|                      |                               |                  |
-|                      v                               v                  |
-|  +-----------------------------------+   +---------------------------+  |
-|  |       src/cardStudio.mjs          |   |  src/operatorConsole.mjs  |  |
-|  |  - buildSonaraimCard()            |   |  - evaluateMeshHealth()   |  |
-|  |  - validateSonaraimCard()         |   |  - evaluateMerkleEpochSync|  |
-|  |  - createCardSigningManifest()    |   |  - evaluateKybChecklist() |  |
-|  +-----------------+-----------------+   +-------------+-------------+  |
-+--------------------|-----------------------------------|----------------+
-                     |                                   |
-                     v                                   v
-      +------------------------------+    +------------------------------+
-      |   sonaraim-b2b API Gateway   |    |  sonaraim-node Admin API     |
-      | (Template Registry & Webhooks|    | (Mesh Telemetry & Merkle Log)|
-      +------------------------------+    +------------------------------+
-```
-
-## 3. Declarative Card Studio Pipeline (ASCII)
+## 2. High-Level System Topology (ASCII)
 
 ```text
-[B2B Tenant Author]
-        |
-        | 1. Define metadata, components[], actions[]
-        v
-[buildSonaraimCard()] ---> Produces immutable sonaraim.card.v1 object
-        |
-        | 2. Enforce whitelist & did:web syntax
-        v
-[validateSonaraimCard()] --(Invalid)--> Returns { valid: false, errors[] }
-        |
-     (Valid)
-        | 3. Canonicalize JSON + SHA-256 digest
-        v
-[createCardSigningManifest()] ---> Returns Ed25519-BLAKE3 Signing Manifest
++-----------------------------------------------------------------------------------+
+|                                  sonaraim-admin                                   |
+|                                                                                   |
+|  +-------------------------------------+   +-----------------------------------+  |
+|  |     Super Admin & Node Operator     |   |      B2B Tenant & Card Studio     |  |
+|  |  - P2P Mesh Telemetry Probing       |   |  - Declarative Card Builder       |  |
+|  |  - Merkle Epoch Sync Drift Check    |   |  - JCS SHA-256 Digest Generator   |  |
+|  |  - Automated KYB (did:web) Audit    |   |  - Live Dispatch to sonaraim-b2b  |  |
+|  |  - Peer Node & Tenant Provisioning  |   |  - Flat-Rate Seat Quota Ledger    |  |
+|  +------------------+------------------+   +-----------------+-----------------+  |
+|                     |                                        |                    |
+|                     +--------------------+-------------------+                    |
+|                                          |                                        |
+|                       +------------------v------------------+                     |
+|                       |  Zero-Trust Auth Gate (authGate.mjs)|                     |
+|                       |  - HMAC-SHA256 Session Cookie       |                     |
+|                       |  - Timing-Safe Bearer Token Compare |                     |
+|                       +------------------+------------------+                     |
+|                                          |                                        |
+|                       +------------------v------------------+                     |
+|                       | Upstream API Client (apiClient.mjs) |                     |
+|                       +---------+-----------------+---------+                     |
++---------------------------------|-----------------|-------------------------------+
+                                  |                 |
+                   Timeout Probes |                 | Live Card Dispatch
+                                  v                 v
+                 +-------------------+   +--------------------+
+                 |   sonaraim-node   |   |    sonaraim-b2b    |
+                 | (Relay Telemetry) |   | (Enterprise Bridge)|
+                 +-------------------+   +--------------------+
 ```
 
-## 4. Federated Merkle Epoch & KYB Evaluation Flow (ASCII)
+---
 
-```text
-[Federated Node Snapshots]                  [B2B did:web KYB Submission]
-           |                                             |
-           v                                             v
-[evaluateMerkleEpochSync()]                 [evaluateKybChecklist()]
-  - Compute highestEpoch                      - Check did:web prefix
-  - Detect root mismatch at same epoch        - Check HTTPS /.well-known/did.json
-  - Flag nodes lagging > maxAllowedDrift      - Check TLS cert + DNS TXT + Ed25519
-           |                                             |
-           v                                             v
-  { inSync, splitBrainDetected,               { verified: true/false,
-    driftedNodes[] }                            failedChecks[] }
-```
+## 3. Subsystem Responsibilities
 
-## 5. Module Responsibilities
+### 3.1 Zero-Trust Operator Authentication Gate (`src/authGate.mjs`)
 
-- **`src/config.mjs`**: Validates environment variables at startup. Rejects missing values, non-HTTP(S) URLs, and out-of-range TCP ports.
-- **`src/cardStudio.mjs`**: Enforces the `sonaraim.card.v1` schema so mobile and desktop clients only render native components from verified `did:web` senders.
-- **`src/operatorConsole.mjs`**: Computes deterministic health verdicts for P2P relays, Merkle state roots, and enterprise KYB onboarding.
-- **`src/index.mjs`**: Clean barrel module exposing the public API surface.
+Provides multi-factor session authentication for administrative routes:
+
+- **Timing-Safe Token Comparison**: Uses `crypto.timingSafeEqual()` to evaluate operator tokens and session cookies without exposing timing side channels.
+- **HMAC Session Tokens**: Issues cryptographically signed HMAC-SHA256 session tokens bound to a fixed server context (`sonaraim-operator-session-v1`).
+- **Cookie Security**: Emits `sonaraim_operator_session` cookies with `HttpOnly`, `SameSite=Lax`, and `Path=/`.
+- **Passkey/Session Views**: Renders accessible login views (`renderLoginView`) with clear error messaging and screen-reader status banners.
+
+### 3.2 Visual Card Studio (`src/cardStudio.mjs`, `src/ui/studioView.mjs`)
+
+Enables enterprise merchants and developers to construct, validate, and test rich interactive cards:
+
+- **Declarative Primitives**: Assembles cards strictly from approved component types (`TextBlock`, `MediaImage`, `KeyValueRow`, `ActionButton`).
+- **Zero-HTML Policy**: Statically forbids raw HTML (`<script>`, `<iframe>`) and executable logic, eliminating WebView injection vectors.
+- **JCS Manifest Creation**: Computes deterministic JSON Canonicalization Scheme (RFC 8785) digests for signing by enterprise DID private keys.
+- **Live Dispatch**: Dispatches the constructed card directly to `sonaraim-b2b` via `POST /v1/messages` when a recipient DID is provided.
+
+### 3.3 Node Operator Console (`src/operatorConsole.mjs`, `src/ui/operatorView.mjs`)
+
+Evaluates health and compliance across federated nodes:
+
+- **Mesh Health Evaluation**: Analyzes peer latency, packet loss percentage, and stream counts against operator-configured thresholds, flagging degraded or disconnected nodes.
+- **Merkle Epoch Sync**: Probes connected relay nodes to detect epoch divergence and split-brain equivocation.
+- **Automated KYB Checklist**: Evaluates business `did:web:` identities against HTTPS DID document availability, TLS certificate chain validity, Ed25519 public key presence, and DNS TXT verification challenges.
+
+### 3.4 Upstream API Client & Telemetry Probing (`src/apiClient.mjs`)
+
+- **Timeout Boundaries**: Wraps all HTTP requests in `AbortSignal.timeout(timeoutMs)` to prevent hanging when upstream nodes are unreachable.
+- **Telemetry Aggregation**: Probes `/health` on both `sonaraim-node` and `sonaraim-b2b` simultaneously, updating Prometheus metrics.
+
+### 3.5 Flat-Rate Seat Governance (`src/tenantBilling.mjs`)
+
+- **Zero-Markup Enforcement**: Enforces the architectural principle of zero per-message fees.
+- **Seat Quotas**: Manages maximum active seat allocations across SMB, PRO, and ENTERPRISE tiers.
