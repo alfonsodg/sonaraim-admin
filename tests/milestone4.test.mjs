@@ -90,6 +90,7 @@ test('startAdminTestServer serves /health, /operator, /studio, and /api/billing/
     b2bApiBaseUrl: 'http://127.0.0.1:8080',
     nodeApiBaseUrl: 'http://127.0.0.1:8090',
     adminHttpPort: 0,
+    allowUnauthenticatedDev: true,
   });
 
   const { baseUrl, close } = await startAdminTestServer(cfg);

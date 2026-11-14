@@ -160,6 +160,7 @@ test('Issue #8: provisionB2bTenant and POST /operator/tenants provision new ente
     b2bApiBaseUrl: `http://127.0.0.1:${b2bPort}`,
     nodeApiBaseUrl: 'http://127.0.0.1:59999',
     adminHttpPort: 0,
+    allowUnauthenticatedDev: true,
   });
 
   const { baseUrl, close } = await startAdminTestServer(cfg);
@@ -240,6 +241,7 @@ test('Issue #9: POST /studio/cards dispatches built card live to sonaraim-b2b PO
     b2bApiBaseUrl: `http://127.0.0.1:${b2bPort}`,
     nodeApiBaseUrl: 'http://127.0.0.1:59999',
     adminHttpPort: 0,
+    allowUnauthenticatedDev: true,
   });
 
   const { baseUrl, close } = await startAdminTestServer(cfg);
@@ -335,6 +337,7 @@ test('Issue #10: registerNodePeer and POST /operator/peers register peer node on
     b2bApiBaseUrl: 'http://127.0.0.1:59998',
     nodeApiBaseUrl: `http://127.0.0.1:${nodePort}`,
     adminHttpPort: 0,
+    allowUnauthenticatedDev: true,
   });
 
   const { baseUrl, close } = await startAdminTestServer(cfg);
