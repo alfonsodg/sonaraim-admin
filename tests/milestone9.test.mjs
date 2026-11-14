@@ -76,6 +76,7 @@ test('Issue #5: POST /studio/cards builds valid card from form-urlencoded and JS
     b2bApiBaseUrl: 'http://127.0.0.1:59998',
     nodeApiBaseUrl: 'http://127.0.0.1:59999',
     adminHttpPort: 0,
+    allowUnauthenticatedDev: true,
   });
 
   const { baseUrl, close } = await startAdminTestServer(cfg);
@@ -183,6 +184,7 @@ test('Issue #6: GET /api/live-telemetry aggregates status from mock upstream Nod
     b2bApiBaseUrl: `http://127.0.0.1:${b2bPort}`,
     nodeApiBaseUrl: `http://127.0.0.1:${nodePort}`,
     adminHttpPort: 0,
+    allowUnauthenticatedDev: true,
   });
 
   const { baseUrl, close } = await startAdminTestServer(cfg);

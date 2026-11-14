@@ -74,15 +74,15 @@ export function renderOperatorView({
       <form method="POST" action="/operator/peers">
         <label for="op-peer-id">
           Peer Node ID
-          <input id="op-peer-id" name="peerId" type="text" required value="node-eu-central-1" />
+          <input id="op-peer-id" name="peerId" type="text" required placeholder="node-eu-central-1" />
         </label>
         <label for="op-peer-rpc">
           Peer RPC URL
-          <input id="op-peer-rpc" name="rpcUrl" type="url" required value="http://127.0.0.1:8081" />
+          <input id="op-peer-rpc" name="rpcUrl" type="url" required placeholder="http://127.0.0.1:8081" />
         </label>
         <label for="op-peer-multiaddr">
           QUIC Multiaddr (Optional)
-          <input id="op-peer-multiaddr" name="multiaddr" type="text" value="/ip4/127.0.0.1/udp/9001/quic-v1" />
+          <input id="op-peer-multiaddr" name="multiaddr" type="text" placeholder="/ip4/127.0.0.1/udp/9001/quic-v1" />
         </label>
         <button type="submit">Register Peer</button>
       </form>

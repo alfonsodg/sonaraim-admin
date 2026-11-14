@@ -5,6 +5,7 @@
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { parseRequestBody, sendHtml } from './httpHelpers.mjs';
 import { escapeHtml, renderAdminShell } from './ui/htmlUtils.mjs';
 
 const SESSION_COOKIE_NAME = 'sonaraim_operator_session';
@@ -41,8 +42,76 @@ function safeEqualString(a, b) {
 }
 
 /**
+ * Determines whether unauthenticated development access is explicitly enabled
+ * outside of production.
+ *
+ * @param {object} [config={}] - Admin configuration object.
+ * @returns {boolean} True when explicit dev no-auth opt-in is active and NODE_ENV is not production.
+ */
+export function isDevNoAuthAllowed(config = {}) {
+  const nodeEnv = String(config?.nodeEnv ?? process.env.NODE_ENV ?? '')
+    .trim()
+    .toLowerCase();
+  if (nodeEnv === 'production') {
+    return false;
+  }
+  if (config?.allowUnauthenticatedDev === true) {
+    return true;
+  }
+  const envFlag = String(
+    process.env.ADMIN_ALLOW_DEV_NOAUTH ?? process.env.SONARAIM_ALLOW_DEV_NOAUTH ?? ''
+  )
+    .trim()
+    .toLowerCase();
+  return envFlag === 'true';
+}
+
+/**
+ * Validates operator authentication configuration at server startup.
+ * Fails fast in production if `ADMIN_OPERATOR_TOKEN` is missing and logs a warning in non-production.
+ *
+ * @param {object} config - Loaded admin configuration object.
+ * @param {Record<string, string|undefined>} [env=process.env] - Environment variables map.
+ * @param {{warn?: Function, error?: Function}} [logger=console] - Structured logger.
+ * @returns {{ok: boolean, reason?: string}} Startup auth validation result.
+ */
+export function validateStartupAuth(config, env = process.env, logger = console) {
+  const token = String(config?.operatorToken ?? env?.ADMIN_OPERATOR_TOKEN ?? '').trim();
+  if (token) {
+    return { ok: true };
+  }
+
+  const nodeEnv = String(config?.nodeEnv ?? env?.NODE_ENV ?? '')
+    .trim()
+    .toLowerCase();
+  if (nodeEnv === 'production') {
+    logger?.error?.(
+      JSON.stringify({
+        level: 'ERROR',
+        service: 'sonaraim-admin',
+        event: 'startup_auth_missing',
+        message: 'ADMIN_OPERATOR_TOKEN is required in production',
+      })
+    );
+    return { ok: false, reason: 'ADMIN_OPERATOR_TOKEN is required in production' };
+  }
+
+  logger?.warn?.(
+    JSON.stringify({
+      level: 'WARN',
+      service: 'sonaraim-admin',
+      event: 'startup_auth_missing',
+      message:
+        'ADMIN_OPERATOR_TOKEN is unset; protected routes fail closed (401) unless ADMIN_ALLOW_DEV_NOAUTH=true',
+    })
+  );
+  return { ok: true };
+}
+
+/**
  * Verifies whether an incoming HTTP request is authorized to access protected Admin routes.
- * When no `operatorToken` / `ADMIN_OPERATOR_TOKEN` is configured, access is permitted for local dev/test.
+ * Fails closed (`false`) when no `operatorToken` / `ADMIN_OPERATOR_TOKEN` is configured,
+ * unless explicit non-production dev opt-in (`allowUnauthenticatedDev` or `ADMIN_ALLOW_DEV_NOAUTH=true`) is enabled.
  *
  * @param {import('node:http').IncomingMessage|{headers?: Record<string, string|undefined>}} req
  * @param {object} [config] - Admin configuration object.
@@ -53,7 +122,7 @@ export function isOperatorAuthorized(req, config = {}) {
     config?.operatorToken ?? process.env.ADMIN_OPERATOR_TOKEN ?? ''
   ).trim();
   if (!requiredToken) {
-    return true;
+    return isDevNoAuthAllowed(config);
   }
 
   const headers = req?.headers ?? {};
@@ -112,5 +181,37 @@ export function renderLoginView({ error = '', authenticated = false } = {}) {
     title: 'Sonaraim Operator Login',
     activeTab: 'operator',
     contentHtml,
+  });
+}
+
+/**
+ * Handles `POST /login` operator authentication and issues an HttpOnly session cookie.
+ * Fails closed with 401 when no operator token is configured unless dev no-auth opt-in is active.
+ *
+ * @param {import('node:http').IncomingMessage} req - Incoming HTTP request.
+ * @param {import('node:http').ServerResponse} res - HTTP response object.
+ * @param {object} config - Admin configuration object.
+ * @returns {Promise<void>}
+ */
+export async function handleOperatorLogin(req, res, config) {
+  const body = await parseRequestBody(req).catch(() => ({}));
+  const candidate = String(body.operatorToken ?? body.token ?? '').trim();
+  const requiredToken = String(
+    config?.operatorToken ?? process.env.ADMIN_OPERATOR_TOKEN ?? ''
+  ).trim();
+
+  if (!requiredToken && !isDevNoAuthAllowed(config)) {
+    sendHtml(res, 401, renderLoginView({ error: 'Operator token is not configured' }));
+    return;
+  }
+
+  if (requiredToken && candidate !== requiredToken) {
+    sendHtml(res, 401, renderLoginView({ error: 'Invalid operator token' }));
+    return;
+  }
+
+  const sessionVal = createOperatorSessionToken(requiredToken || candidate || 'dev-token');
+  sendHtml(res, 200, renderLoginView({ authenticated: true }), {
+    'Set-Cookie': `${SESSION_COOKIE_NAME}=${sessionVal}; HttpOnly; Path=/; SameSite=Lax`,
   });
 }

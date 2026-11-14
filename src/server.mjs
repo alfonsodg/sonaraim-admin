@@ -15,7 +15,9 @@ import {
   fetchUpstreamTelemetry, provisionB2bTenant, dispatchCardToB2b, registerNodePeer,
 } from './apiClient.mjs';
 import {
-  createOperatorSessionToken, isOperatorAuthorized, renderLoginView,
+  handleOperatorLogin,
+  isOperatorAuthorized,
+  renderLoginView,
 } from './authGate.mjs';
 import {
   parseRequestBody, renderPrometheusMetrics, sendJson, sendHtml,
@@ -100,21 +102,7 @@ export function createAdminRequestHandler(config) {
     }
 
     if (req.method === 'POST' && url.pathname === '/login') {
-      const body = await parseRequestBody(req).catch(() => ({}));
-      const candidate = String(body.operatorToken ?? body.token ?? '').trim();
-      const requiredToken = String(
-        config?.operatorToken ?? process.env.ADMIN_OPERATOR_TOKEN ?? ''
-      ).trim();
-
-      if (requiredToken && candidate !== requiredToken) {
-        sendHtml(res, 401, renderLoginView({ error: 'Invalid operator token' }));
-        return;
-      }
-
-      const sessionVal = createOperatorSessionToken(requiredToken || candidate || 'dev-token');
-      sendHtml(res, 200, renderLoginView({ authenticated: true }), {
-        'Set-Cookie': `sonaraim_operator_session=${sessionVal}; HttpOnly; Path=/; SameSite=Lax`,
-      });
+      await handleOperatorLogin(req, res, config);
       return;
     }
 
