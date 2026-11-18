@@ -5,6 +5,21 @@
 import { escapeHtml, renderAdminShell } from './htmlUtils.mjs';
 
 /**
+ * Builds a masked preview of a tenant API key safe to embed in HTML
+ * (`sk-…abcd`); the full key is never reflected into markup.
+ *
+ * @param {string} [apiKey=''] - Full tenant API key.
+ * @returns {string} Masked preview, or empty string when no key is set.
+ */
+export function maskTenantApiKey(apiKey = '') {
+  const key = String(apiKey ?? '');
+  if (!key) {
+    return '';
+  }
+  return `sk-…${key.slice(-4)}`;
+}
+
+/**
  * Renders the B2B Tenant Card Studio interactive builder form, preview, and 0%-markup campaign summary.
  *
  * @param {object} state - Card Studio state.
@@ -14,7 +29,7 @@ import { escapeHtml, renderAdminShell } from './htmlUtils.mjs';
  * @param {string} state.manifestHash - Deterministic signing manifest hash.
  * @param {number} state.actionsCount - Number of interactive card actions.
  * @param {string} [state.recipientDid=''] - Optional recipient DID (e.g. did:sonaraim:alice).
- * @param {string} [state.apiKey=''] - Optional B2B tenant API key.
+ * @param {string} [state.apiKeyPreview=''] - Optional masked B2B tenant API key preview (never the full key).
  * @param {object|null} [state.dispatchResult=null] - Upstream live B2B dispatch result.
  * @returns {string} Complete HTML5 document.
  */
@@ -25,7 +40,7 @@ export function renderStudioView({
   manifestHash,
   actionsCount,
   recipientDid = '',
-  apiKey = '',
+  apiKeyPreview = '',
   dispatchResult = null,
 }) {
   const safeTenantDid = escapeHtml(tenantDid);
@@ -33,7 +48,11 @@ export function renderStudioView({
   const safeActionLabel = escapeHtml(actionLabel);
   const safeManifestHash = escapeHtml(manifestHash);
   const safeRecipientDid = escapeHtml(recipientDid);
-  const safeApiKey = escapeHtml(apiKey);
+  const safeApiKeyPreview = escapeHtml(apiKeyPreview);
+
+  const previewHtml = safeApiKeyPreview
+    ? `<p>API Key on file: <code>${safeApiKeyPreview}</code></p>`
+    : '';
 
   const dispatchHtml = dispatchResult
     ? `
@@ -67,10 +86,11 @@ export function renderStudioView({
         </label>
         <label for="studio-api-key">
           B2B Tenant API Key
-          <input id="studio-api-key" name="apiKey" type="password" value="${safeApiKey}" />
+          <input id="studio-api-key" name="apiKey" type="password" value="" placeholder="sk-…" autocomplete="new-password" />
         </label>
         <button type="submit">Build &amp; Sign Card</button>
       </form>
+      ${previewHtml}
     </section>
     <section aria-labelledby="studio-builder">
       <h2 id="studio-builder">Declarative Card Preview</h2>

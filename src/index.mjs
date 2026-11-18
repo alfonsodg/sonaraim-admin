@@ -16,7 +16,7 @@ export {
   evaluateKybChecklist,
 } from './operatorConsole.mjs';
 export { renderOperatorView } from './ui/operatorView.mjs';
-export { renderStudioView } from './ui/studioView.mjs';
+export { renderStudioView, maskTenantApiKey } from './ui/studioView.mjs';
 export { createTenantBillingLedger, computeAdminTakeRate } from './tenantBilling.mjs';
 export {
   fetchUpstreamTelemetry,
