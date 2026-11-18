@@ -205,7 +205,7 @@ export async function handleOperatorLogin(req, res, config) {
     return;
   }
 
-  if (requiredToken && candidate !== requiredToken) {
+  if (requiredToken && !safeEqualString(candidate, requiredToken)) {
     sendHtml(res, 401, renderLoginView({ error: 'Invalid operator token' }));
     return;
   }

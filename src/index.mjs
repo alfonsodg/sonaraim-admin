@@ -26,6 +26,7 @@ export {
 } from './apiClient.mjs';
 export {
   createOperatorSessionToken,
+  handleOperatorLogin,
   isOperatorAuthorized,
   renderLoginView,
 } from './authGate.mjs';
