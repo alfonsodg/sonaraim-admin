@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { startAdminTestServer, renderStudioView } from '../src/index.mjs';
+import { startAdminTestServer, renderStudioView, maskTenantApiKey } from '../src/index.mjs';
 import { isolateDevAuthEnv, restoreTestEnv } from './testEnv.mjs';
 
 /**
@@ -65,6 +65,28 @@ test('Issue #15: renderStudioView never embeds the full apiKey, only a masked pr
 
   assert.doesNotMatch(html, /sk-live-tenant-secret-00ab/);
   assert.match(html, /sk-…00ab/);
+});
+
+test('Issue #15: maskTenantApiKey preserves the real prefix and never returns the full key', () => {
+  assert.equal(maskTenantApiKey(''), '');
+  assert.equal(maskTenantApiKey(null), '');
+  assert.equal(
+    maskTenantApiKey('sk-live-tenant-secret-00ab'),
+    'sk-…00ab'
+  );
+  assert.equal(
+    maskTenantApiKey('sec_tenant_key_9941'),
+    'sec-…9941'
+  );
+  for (const short of ['a', 'ab', 'sk-1', '12345678']) {
+    const masked = maskTenantApiKey(short);
+    assert.ok(!masked.includes(short), `short key must not leak: ${short}`);
+  }
+  const key = 'sk-live-super-secret-key-1234abcd';
+  const masked = maskTenantApiKey(key);
+  assert.ok(!masked.includes(key));
+  assert.ok(masked.endsWith('abcd'));
+  assert.ok(masked.startsWith('sk-'));
 });
 
 test('Issue #15: POST /studio/cards HTML never contains the full submitted apiKey', async () => {

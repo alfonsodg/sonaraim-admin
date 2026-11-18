@@ -58,6 +58,7 @@ export function renderOperatorView({
       ${bannerHtml}
       <p>Status: <strong data-telemetry="meshStatus">${escapeHtml(meshSummary?.status ?? 'UNKNOWN')}</strong></p>
       <p>Connected Peers: <strong data-telemetry="peerCount">${effectivePeerCount}</strong></p>
+      <p role="status" data-telemetry="connectionStatus" data-state="live">Live telemetry connected.</p>
       <p>Healthy nodes: ${Number(meshSummary?.healthyCount ?? 0)} / ${Number(meshSummary?.totalCount ?? 0)}</p>
       <noscript><p>Live telemetry auto-refresh requires JavaScript; reload the page to update these values.</p></noscript>
     </section>
@@ -124,6 +125,13 @@ export function renderOperatorView({
           return;
         }
         var source = new EventSource('/api/live-telemetry/stream');
+        var statusBanner = document.querySelector('[data-telemetry="connectionStatus"]');
+        function setConnectionState(state, message) {
+          if (statusBanner) {
+            statusBanner.textContent = message;
+            statusBanner.setAttribute('data-state', state);
+          }
+        }
         source.addEventListener('telemetry', function (event) {
           try {
             var snapshot = JSON.parse(event.data);
@@ -138,6 +146,10 @@ export function renderOperatorView({
           } catch (err) {
             source.close();
           }
+        });
+        source.addEventListener('error', function () {
+          setConnectionState('offline', 'Live telemetry disconnected (session may have expired); reload the page to reconnect.');
+          source.close();
         });
       })();
     </script>`;

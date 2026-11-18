@@ -6,7 +6,10 @@ import { escapeHtml, renderAdminShell } from './htmlUtils.mjs';
 
 /**
  * Builds a masked preview of a tenant API key safe to embed in HTML
- * (`sk-…abcd`); the full key is never reflected into markup.
+ * (`<prefix>…abcd`); the full key is never reflected into markup.
+ * The real key prefix is preserved when identifiable (e.g. `sk-`, `sec-`);
+ * short keys (`<= 8` chars) are fully masked so the preview never
+ * contains the complete key.
  *
  * @param {string} [apiKey=''] - Full tenant API key.
  * @returns {string} Masked preview, or empty string when no key is set.
@@ -16,7 +19,12 @@ export function maskTenantApiKey(apiKey = '') {
   if (!key) {
     return '';
   }
-  return `sk-…${key.slice(-4)}`;
+  if (key.length <= 8) {
+    return '••••';
+  }
+  const prefixMatch = /^([A-Za-z0-9]{1,12})[-_:]/.exec(key);
+  const prefix = prefixMatch ? `${prefixMatch[1]}-` : '';
+  return `${prefix}…${key.slice(-4)}`;
 }
 
 /**
