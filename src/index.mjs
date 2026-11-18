@@ -31,3 +31,8 @@ export {
   renderLoginView,
 } from './authGate.mjs';
 export { createAdminRequestHandler, startAdminTestServer } from './server.mjs';
+export {
+  handleLiveTelemetryStream,
+  serializeTelemetryEvent,
+  LIVE_TELEMETRY_SSE_INTERVAL_MS,
+} from './liveTelemetryStream.mjs';

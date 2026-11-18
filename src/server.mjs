@@ -22,6 +22,7 @@ import {
 import {
   parseRequestBody, renderPrometheusMetrics, sendJson, sendHtml,
 } from './httpHelpers.mjs';
+import { handleLiveTelemetryStream } from './liveTelemetryStream.mjs';
 
 /**
  * Renders and sends the Operator Console view with up-to-date telemetry and peers.
@@ -117,6 +118,11 @@ export function createAdminRequestHandler(config) {
       metricsState.nodeReachable = telemetry.nodeReachable;
       metricsState.b2bReachable = telemetry.b2bReachable;
       sendJson(res, 200, { service: 'sonaraim-admin', ...telemetry });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/live-telemetry/stream') {
+      await handleLiveTelemetryStream(req, res, config, metricsState);
       return;
     }
 

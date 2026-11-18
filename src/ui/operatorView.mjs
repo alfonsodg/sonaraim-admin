@@ -56,9 +56,10 @@ export function renderOperatorView({
     <section aria-labelledby="mesh-heading">
       <h2 id="mesh-heading">P2P Relay Mesh Health</h2>
       ${bannerHtml}
-      <p>Status: <strong>${escapeHtml(meshSummary?.status ?? 'UNKNOWN')}</strong></p>
-      <p>Connected Peers: <strong>${effectivePeerCount}</strong></p>
+      <p>Status: <strong data-telemetry="meshStatus">${escapeHtml(meshSummary?.status ?? 'UNKNOWN')}</strong></p>
+      <p>Connected Peers: <strong data-telemetry="peerCount">${effectivePeerCount}</strong></p>
       <p>Healthy nodes: ${Number(meshSummary?.healthyCount ?? 0)} / ${Number(meshSummary?.totalCount ?? 0)}</p>
+      <noscript><p>Live telemetry auto-refresh requires JavaScript; reload the page to update these values.</p></noscript>
     </section>
     <section aria-labelledby="merkle-heading">
       <h2 id="merkle-heading">Merkle Key Transparency Sync</h2>
@@ -116,7 +117,30 @@ export function renderOperatorView({
         </label>
         <button type="submit">Provision Tenant</button>
       </form>
-    </section>`;
+    </section>
+    <script>
+      (function () {
+        if (typeof EventSource === 'undefined') {
+          return;
+        }
+        var source = new EventSource('/api/live-telemetry/stream');
+        source.addEventListener('telemetry', function (event) {
+          try {
+            var snapshot = JSON.parse(event.data);
+            var mesh = document.querySelector('[data-telemetry="meshStatus"]');
+            if (mesh) {
+              mesh.textContent = snapshot.meshStatus;
+            }
+            var peers = document.querySelector('[data-telemetry="peerCount"]');
+            if (peers) {
+              peers.textContent = snapshot.peerCount;
+            }
+          } catch (err) {
+            source.close();
+          }
+        });
+      })();
+    </script>`;
 
   return renderAdminShell({
     title: 'Sonaraim Operator Console',
