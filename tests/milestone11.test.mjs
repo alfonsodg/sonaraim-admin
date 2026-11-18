@@ -380,7 +380,7 @@ test('Issue #10: registerNodePeer and POST /operator/peers register peer node on
 
     assert.equal(postRes.status, 200);
     assert.match(postRes.body, /peer-us-east/);
-    assert.match(postRes.body, /Connected Peers: <strong>[1-9]/);
+    assert.match(postRes.body, /Connected Peers: <strong[^>]*>[1-9]/);
 
     const metricsRes = await requestHttp(`${baseUrl}/metrics`);
     assert.match(metricsRes.body, /sonaraim_admin_peers_registered_total 1/);

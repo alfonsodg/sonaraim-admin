@@ -19,6 +19,7 @@
   - Federated Merkle epoch synchronization validator with drift and split-brain detection.
   - Automated KYB (`did:web`) verification checklist (DID document reachability, TLS chain validation, Ed25519 key presence, DNS TXT challenge).
   - Dynamic peer node registration (`POST /operator/peers`) and tenant provisioning (`POST /operator/tenants`).
+  - Live telemetry SSE stream (`GET /api/live-telemetry/stream`) with pre-escaped snapshots and a minimal inline `EventSource` subscription on the `/operator` view (progressive enhancement: full SSR without JavaScript).
 - **B2B Tenant Console & Visual Card Studio (`src/cardStudio.mjs`, `src/ui/studioView.mjs`)**:
   - Declarative builder and schema validator for `Sonaraim Cards` (`sonaraim.card.v1`).
   - Strict rejection of unsafe components (`iframe`, raw HTML, executable JavaScript).
@@ -107,6 +108,7 @@ The following ASCII diagram illustrates the operational segregation between Node
 | `GET` | `/studio` | Session/Bearer | Visual Card Studio editor view |
 | `POST` | `/studio/cards` | Session/Bearer | Build, validate, and optionally dispatch card to B2B |
 | `GET` | `/api/live-telemetry` | Session/Bearer | Aggregated upstream node and B2B telemetry probe |
+| `GET` | `/api/live-telemetry/stream` | Session/Bearer | Live telemetry SSE stream (pre-escaped snapshots, 1s interval) |
 | `GET` | `/api/billing/summary` | Session/Bearer | Tenant seat quota and billing summary |
 
 ---

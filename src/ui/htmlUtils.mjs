@@ -19,6 +19,9 @@ export function escapeHtml(value) {
 
 /**
  * Wraps page content in an accessible, responsive HTML5 document shell.
+ * Every view renders fully server-side; the Operator Console adds one
+ * minimal inline `EventSource` subscription for live telemetry
+ * (progressive enhancement — the page works without JavaScript).
  *
  * @param {object} params - Shell rendering options.
  * @param {string} params.title - Document and header title.

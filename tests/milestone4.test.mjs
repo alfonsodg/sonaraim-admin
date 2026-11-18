@@ -45,9 +45,11 @@ test('renderOperatorView renders mesh health, Merkle epoch sync, and KYB checkli
   assert.match(html, /Sonaraim Operator Console/);
   assert.match(html, /HEALTHY/);
   assert.match(html, /did:web:clinic\.example\.com/);
-  assert.doesNotMatch(html, /<script>alert|<script>/);
+  assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /@media\s*\(/);
+  assert.match(html, /EventSource/);
+  assert.match(html, /<noscript>/);
 });
 
 test('renderStudioView renders declarative Card Studio preview and zero per-message fee badge', () => {
