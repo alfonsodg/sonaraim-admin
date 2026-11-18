@@ -6,7 +6,7 @@
 
 import http from 'node:http';
 import { renderOperatorView } from './ui/operatorView.mjs';
-import { renderStudioView } from './ui/studioView.mjs';
+import { renderStudioView, maskTenantApiKey } from './ui/studioView.mjs';
 import { createTenantBillingLedger } from './tenantBilling.mjs';
 import {
   buildSonaraimCard, validateSonaraimCard, createCardSigningManifest,
@@ -240,7 +240,7 @@ export function createAdminRequestHandler(config) {
         manifestHash: manifest.payloadDigestHex,
         actionsCount: card.actions.length,
         recipientDid,
-        apiKey,
+        apiKeyPreview: maskTenantApiKey(apiKey),
         dispatchResult,
       };
 
