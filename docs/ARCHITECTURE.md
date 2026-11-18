@@ -17,7 +17,7 @@
 |  +-------------------------------------+   +-----------------------------------+  |
 |  |     Super Admin & Node Operator     |   |      B2B Tenant & Card Studio     |  |
 |  |  - P2P Mesh Telemetry Probing       |   |  - Declarative Card Builder       |  |
-|  |  - Merkle Epoch Sync Drift Check    |   |  - JCS SHA-256 Digest Generator   |  |
+|  |  - Merkle Epoch Sync Drift Check    |   |  - Deterministic Digest Generator |  |
 |  |  - Automated KYB (did:web) Audit    |   |  - Live Dispatch to sonaraim-b2b  |  |
 |  |  - Peer Node & Tenant Provisioning  |   |  - Flat-Rate Seat Quota Ledger    |  |
 |  +------------------+------------------+   +-----------------+-----------------+  |
@@ -60,9 +60,9 @@ Provides multi-factor session authentication for administrative routes:
 
 Enables enterprise merchants and developers to construct, validate, and test rich interactive cards:
 
-- **Declarative Primitives**: Assembles cards strictly from approved component types (`TextBlock`, `MediaImage`, `KeyValueRow`, `ActionButton`).
+- **Declarative Primitives**: Assembles cards strictly from approved component types (`header`, `text`, `input`, `select`, `date_picker`, `key_value_list`).
 - **Zero-HTML Policy**: Statically forbids raw HTML (`<script>`, `<iframe>`) and executable logic, eliminating WebView injection vectors.
-- **JCS Manifest Creation**: Computes deterministic JSON Canonicalization Scheme (RFC 8785) digests for signing by enterprise DID private keys.
+- **Deterministic Manifest Creation**: Computes deterministic SHA-256 digests over a fixed-field-order JSON payload for signing by enterprise DID private keys. The field order is fixed by construction in `createCardSigningManifest` (`src/cardStudio.mjs`); it is not a full RFC 8785 (JCS) canonicalization — key ordering inside nested objects is preserved as supplied, so signing inputs must be built via `buildSonaraimCard` for byte stability.
 - **Live Dispatch**: Dispatches the constructed card directly to `sonaraim-b2b` via `POST /v1/messages` when a recipient DID is provided.
 
 ### 3.3 Node Operator Console (`src/operatorConsole.mjs`, `src/ui/operatorView.mjs`)

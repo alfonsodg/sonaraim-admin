@@ -46,7 +46,7 @@ The Sonaraim engineering team treats security issues with high priority. We requ
 
 ### 3.2 Visual Card Studio & Injection Prevention
 
-- **Strict Component Whitelist**: Card Studio constructs only allowed declarative components (`TextBlock`, `MediaImage`, `KeyValueRow`, `ActionButton`).
+- **Strict Component Whitelist**: Card Studio constructs only allowed declarative components (`header`, `text`, `input`, `select`, `date_picker`, `key_value_list`).
 - **Zero Remote Code Execution**: Raw HTML (`<script>`, `<iframe>`) and executable logic are rejected at both schema and structural validation levels.
 - **HTML Sanitization**: All user-provided inputs rendered in HTML views are escaped using `escapeHtml()` to eliminate Cross-Site Scripting (XSS).
 
