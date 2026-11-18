@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
+import { isolateDevAuthEnv, restoreTestEnv } from './testEnv.mjs';
 import {
   startAdminTestServer,
   createOperatorSessionToken,
@@ -127,6 +128,8 @@ test('Issue #7: enforces 401 when operatorToken is configured and authenticates 
 });
 
 test('Issue #8: provisionB2bTenant and POST /operator/tenants provision new enterprise did:web tenant on mock B2B server', async () => {
+  const __envSnapshot = isolateDevAuthEnv();
+  try {
   let receivedPayload = null;
   let receivedAdminHeader = '';
 
@@ -203,9 +206,14 @@ test('Issue #8: provisionB2bTenant and POST /operator/tenants provision new ente
     await close();
     await new Promise((resolve) => mockB2b.close(resolve));
   }
+  } finally {
+    restoreTestEnv(__envSnapshot);
+  }
 });
 
 test('Issue #9: POST /studio/cards dispatches built card live to sonaraim-b2b POST /v1/messages when recipientDid is provided', async () => {
+  const __envSnapshot = isolateDevAuthEnv();
+  try {
   let receivedMsg = null;
   let receivedBearer = '';
 
@@ -283,9 +291,14 @@ test('Issue #9: POST /studio/cards dispatches built card live to sonaraim-b2b PO
     await close();
     await new Promise((resolve) => mockB2b.close(resolve));
   }
+  } finally {
+    restoreTestEnv(__envSnapshot);
+  }
 });
 
 test('Issue #10: registerNodePeer and POST /operator/peers register peer node on mock sonaraim-node and update live peer count', async () => {
+  const __envSnapshot = isolateDevAuthEnv();
+  try {
   let receivedPeerPayload = null;
 
   const mockNode = http.createServer((req, res) => {
@@ -374,5 +387,8 @@ test('Issue #10: registerNodePeer and POST /operator/peers register peer node on
   } finally {
     await close();
     await new Promise((resolve) => mockNode.close(resolve));
+  }
+  } finally {
+    restoreTestEnv(__envSnapshot);
   }
 });

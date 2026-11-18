@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
+import { isolateDevAuthEnv, restoreTestEnv } from './testEnv.mjs';
 import {
   renderStudioView,
   startAdminTestServer,
@@ -72,6 +73,8 @@ test('Issue #5: renderStudioView includes accessible POST /studio/cards form wit
 });
 
 test('Issue #5: POST /studio/cards builds valid card from form-urlencoded and JSON and rejects invalid tenantDid with 400', async () => {
+  const __envSnapshot = isolateDevAuthEnv();
+  try {
   const cfg = Object.freeze({
     b2bApiBaseUrl: 'http://127.0.0.1:59998',
     nodeApiBaseUrl: 'http://127.0.0.1:59999',
@@ -141,9 +144,14 @@ test('Issue #5: POST /studio/cards builds valid card from form-urlencoded and JS
   } finally {
     await close();
   }
+  } finally {
+    restoreTestEnv(__envSnapshot);
+  }
 });
 
 test('Issue #6: GET /api/live-telemetry aggregates status from mock upstream Node and B2B servers and GET /metrics returns Prometheus counters', async () => {
+  const __envSnapshot = isolateDevAuthEnv();
+  try {
   const mockNode = http.createServer((req, res) => {
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -214,5 +222,8 @@ test('Issue #6: GET /api/live-telemetry aggregates status from mock upstream Nod
     await close();
     await new Promise((resolve) => mockNode.close(resolve));
     await new Promise((resolve) => mockB2b.close(resolve));
+  }
+  } finally {
+    restoreTestEnv(__envSnapshot);
   }
 });

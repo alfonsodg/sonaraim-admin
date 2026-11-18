@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
+import { isolateDevAuthEnv, restoreTestEnv } from './testEnv.mjs';
 import {
   renderOperatorView,
   renderStudioView,
@@ -86,6 +87,8 @@ test('tenant billing enforces seat limits and computes zero-markup take-rate', (
 });
 
 test('startAdminTestServer serves /health, /operator, /studio, and /api/billing/summary', async () => {
+  const __envSnapshot = isolateDevAuthEnv();
+  try {
   const cfg = Object.freeze({
     b2bApiBaseUrl: 'http://127.0.0.1:8080',
     nodeApiBaseUrl: 'http://127.0.0.1:8090',
@@ -112,5 +115,8 @@ test('startAdminTestServer serves /health, /operator, /studio, and /api/billing/
     assert.match(billing.body, /"perMessageFee":0/);
   } finally {
     await close();
+  }
+  } finally {
+    restoreTestEnv(__envSnapshot);
   }
 });
