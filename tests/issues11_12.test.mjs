@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
+import { isolateDevAuthEnv, restoreTestEnv } from './testEnv.mjs';
 import {
   renderOperatorView,
   isOperatorAuthorized,
@@ -109,6 +110,8 @@ test('Issue #12: isOperatorAuthorized fails closed when operatorToken is unset u
 });
 
 test('Issue #12: HTTP server returns 401 Unauthorized on protected routes when operatorToken is unset without dev opt-in', async () => {
+  const __envSnapshot = isolateDevAuthEnv();
+  try {
   const prevToken = process.env.ADMIN_OPERATOR_TOKEN;
   const prevNoAuth = process.env.ADMIN_ALLOW_DEV_NOAUTH;
 
@@ -151,5 +154,8 @@ test('Issue #12: HTTP server returns 401 Unauthorized on protected routes when o
 
     if (prevNoAuth === undefined) delete process.env.ADMIN_ALLOW_DEV_NOAUTH;
     else process.env.ADMIN_ALLOW_DEV_NOAUTH = prevNoAuth;
+  }
+  } finally {
+    restoreTestEnv(__envSnapshot);
   }
 });

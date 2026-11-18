@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 import { startAdminTestServer, renderStudioView } from '../src/index.mjs';
+import { isolateDevAuthEnv, restoreTestEnv } from './testEnv.mjs';
 
 /**
  * Helper to perform HTTP GET or POST requests against local test servers.
@@ -67,6 +68,8 @@ test('Issue #15: renderStudioView never embeds the full apiKey, only a masked pr
 });
 
 test('Issue #15: POST /studio/cards HTML never contains the full submitted apiKey', async () => {
+  const __envSnapshot = isolateDevAuthEnv();
+  try {
   const fullKey = 'sk-live-super-secret-key-1234abcd';
   const cfg = Object.freeze({
     b2bApiBaseUrl: 'http://127.0.0.1:59998',
@@ -98,5 +101,8 @@ test('Issue #15: POST /studio/cards HTML never contains the full submitted apiKe
     assert.match(res.body, /sk-…abcd/);
   } finally {
     await close();
+  }
+  } finally {
+    restoreTestEnv(__envSnapshot);
   }
 });
