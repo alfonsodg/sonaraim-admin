@@ -120,6 +120,9 @@ test('Issue #17: /operator view subscribes via minimal EventSource script (progr
     assert.match(html, /EventSource/);
     assert.match(html, /\/api\/live-telemetry\/stream/);
     assert.match(html, /<noscript>/);
+    assert.match(html, /addEventListener\('error'/);
+    assert.match(html, /data-telemetry="connectionStatus"/);
+    assert.match(html, /reload the page to reconnect/);
 
     const cfg = Object.freeze({
       b2bApiBaseUrl: 'http://127.0.0.1:59998',
