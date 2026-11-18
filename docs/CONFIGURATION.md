@@ -18,7 +18,7 @@
 | `ADMIN_HTTP_HOST` | Host string | No | Bind host address (default `127.0.0.1` or `0.0.0.0`). | `0.0.0.0` |
 | `ADMIN_OPERATOR_TOKEN` | Secret string | No | Secret token protecting the Operator Console and Card Studio. Enforces Bearer or session cookie auth. | `sec_operator_token_99` |
 | `B2B_BOOTSTRAP_API_KEY` | Secret string | No | Pre-shared API key for dispatching cards from the Visual Card Studio to `sonaraim-b2b`. | `sec_bootstrap_key_1234` |
-| `B2B_ADMIN_API_KEY` | Secret string | No | Pre-shared administrative key for provisioning new B2B tenants via `/operator/tenants`. | `master-admin-key-secret` |
+| `B2B_ADMIN_KEY` | Secret string | No | Pre-shared administrative key for provisioning new B2B tenants via `/operator/tenants`. | `master-admin-key-secret` |
 
 ---
 
@@ -33,7 +33,7 @@ ADMIN_HTTP_PORT=8044
 ADMIN_HTTP_HOST=0.0.0.0
 ADMIN_OPERATOR_TOKEN=test-operator-token
 B2B_BOOTSTRAP_API_KEY=sec_bootstrap_key_1234
-B2B_ADMIN_API_KEY=master-admin-key-secret
+B2B_ADMIN_KEY=master-admin-key-secret
 ```
 
 ---

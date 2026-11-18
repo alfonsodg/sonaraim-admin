@@ -46,7 +46,7 @@ sequenceDiagram
     Studio->>Builder: buildSonaraimCard(params)
     Builder->>Builder: Validate schema & sanitize components (no HTML/eval)
     Builder->>Builder: createCardSigningManifest(card)
-    Builder-->>Studio: Valid card + JCS SHA-256 digest
+    Builder-->>Studio: Valid card + deterministic SHA-256 digest
     alt recipientDid provided
         Studio->>B2B: POST /v1/messages (apiKey, recipientDid, card)
         B2B-->>Studio: 200 OK (dispatched, message_id)

@@ -23,7 +23,7 @@
 - **B2B Tenant Console & Visual Card Studio (`src/cardStudio.mjs`, `src/ui/studioView.mjs`)**:
   - Declarative builder and schema validator for `Sonaraim Cards` (`sonaraim.card.v1`).
   - Strict rejection of unsafe components (`iframe`, raw HTML, executable JavaScript).
-  - Deterministic JCS SHA-256 digest creation and signing manifest generation.
+  - **Deterministic SHA-256 digest creation and signing manifest generation** — fixed field order by construction (see `docs/ARCHITECTURE.md` §3.2 for the RFC 8785 scope note).
   - Live card dispatch to `sonaraim-b2b` (`POST /v1/messages`) via `POST /studio/cards`.
 - **Zero-Trust Operator Authentication Gate (`src/authGate.mjs`)**:
   - Constant-time Bearer token and HMAC-SHA256 session cookie (`sonaraim_operator_session`) validation.
@@ -72,7 +72,7 @@ The following ASCII diagram illustrates the operational segregation between Node
 |  |                           |              |                                  |  |
 |  | * P2P Relay Mesh Latency  |              | * Zero-HTML Component Tree       |  |
 |  | * Merkle Epoch Sync Drift |              | * Strict JSON Schema Validation  |  |
-|  | * Verifiable did:web KYB  |              | * JCS SHA-256 Digest Preview     |  |
+|  | * Verifiable did:web KYB  |              | * Deterministic Digest Preview   |  |
 |  | * Dynamic Peer Additions  |              | * Direct Card Dispatch to B2B    |  |
 |  +-------------+-------------+              +-----------------+----------------+  |
 |                |                                              |                   |
@@ -131,17 +131,19 @@ sonaraim-admin/
 │   ├── config.mjs            # Zero-hardcode environment variable loader
 │   ├── httpHelpers.mjs       # HTTP request parsing and response helpers
 │   ├── index.mjs             # Public package exports
+│   ├── liveTelemetryStream.mjs # Live telemetry SSE stream handler
 │   ├── main.mjs              # Standalone CLI server entry point
 │   ├── operatorConsole.mjs   # Mesh health, Merkle sync & KYB evaluators
 │   ├── server.mjs            # HTTP request router and metrics state
 │   ├── tenantBilling.mjs     # Seat quotas and flat-rate billing ledger
 │   └── ui/
 │       ├── htmlUtils.mjs     # HTML escaping and shell rendering
-│       ├── loginView.mjs     # Operator login view renderer
-│       ├── operatorView.mjs  # Operator Console view renderer
+│       ├── operatorView.mjs  # Operator Console view renderer (+ live SSE subscription)
 │       └── studioView.mjs    # Visual Card Studio view renderer
 ├── tests/
-│   └── admin.test.mjs        # Node.js native test runner suite
+│   ├── admin.test.mjs        # Node.js native test runner suite
+│   ├── testEnv.mjs           # Shared NODE_ENV save/restore test helper
+│   └── issue*.test.mjs       # Per-issue TDD regression suites
 ├── CODE_OF_CONDUCT.md        # Contributor Covenant v2.1
 ├── CONTRIBUTING.md           # Development, TDD & git workflow guide
 ├── LICENSE                   # Apache License 2.0
